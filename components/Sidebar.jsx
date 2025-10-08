@@ -43,7 +43,7 @@ export default function Sidebar() {
     { name: 'Requisition', icon: ClipboardList, path: '/Requisition' },
     { name: 'Order', icon: ShoppingCart, path: '/Orders' },
     { name: 'Expenses', icon: DollarSign, path: '/Expenses' },
-    { name: 'Reports', icon: FileText, path: '/reports' },
+    { name: 'Reports', icon: FileText, path: '/Reports' },
   ]
 
   // Handle logout
