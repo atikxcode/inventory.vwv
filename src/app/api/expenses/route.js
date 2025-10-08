@@ -1,6 +1,6 @@
-import clientPromise from '@/lib/mongodb'
+import clientPromise from '../../../../lib/mongodb'
 import { NextResponse } from 'next/server'
-import { verifyApiToken, createAuthError, checkRateLimit } from '@/lib/auth'
+import { verifyApiToken, createAuthError, checkRateLimit } from '../../../../lib/auth'
 import { ObjectId } from 'mongodb'
 
 // 🔐 SECURITY CONSTANTS

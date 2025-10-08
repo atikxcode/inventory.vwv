@@ -41,7 +41,7 @@ export default function Sidebar() {
     { name: 'Stock', icon: Package, path: '/Inventory' },
     { name: 'Requisition', icon: ClipboardList, path: '/Requisition' },
     { name: 'Order', icon: ShoppingCart, path: '/Orders' },
-    { name: 'Expenses', icon: DollarSign, path: '/expenses' },
+    { name: 'Expenses', icon: DollarSign, path: '/Expenses' },
     { name: 'Reports', icon: FileText, path: '/reports' },
   ]
 
