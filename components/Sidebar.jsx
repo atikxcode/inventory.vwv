@@ -40,7 +40,7 @@ export default function Sidebar() {
   const menuItems = [
     { name: 'Stock', icon: Package, path: '/Inventory' },
     { name: 'Requisition', icon: ClipboardList, path: '/Requisition' },
-    { name: 'Order', icon: ShoppingCart, path: '/order' },
+    { name: 'Order', icon: ShoppingCart, path: '/Orders' },
     { name: 'Expenses', icon: DollarSign, path: '/expenses' },
     { name: 'Reports', icon: FileText, path: '/reports' },
   ]

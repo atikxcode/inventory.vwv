@@ -10,7 +10,7 @@ import Swal from 'sweetalert2'
 import { Store, ShieldCheck } from 'lucide-react'
 
 export default function POSLoginPage() {
-  const { user, signIn, handleGoogleSignIn, handleAppleSignIn } = useContext(AuthContext)
+  const { user, signIn, handleGoogleSignIn, handleAppleSignIn, logOut } = useContext(AuthContext)
   const router = useRouter()
 
   const [showPassword, setShowPassword] = useState(false)
@@ -23,11 +23,26 @@ export default function POSLoginPage() {
     formState: { errors, isValid },
   } = useForm({ mode: 'onChange' })
 
+  // 🔥 NEW: Clear auth data on page load - force re-login
+  useEffect(() => {
+    // Clear all auth data
+    localStorage.removeItem('auth-token')
+    localStorage.removeItem('user-info')
+    sessionStorage.clear()
+    
+    // Sign out from Firebase
+    if (user) {
+      logOut().catch(err => console.log('Logout error:', err))
+    }
+    
+    console.log('✅ Auth cleared - login required')
+  }, [])
+
   // Function to get Firebase token and store it
   const storeFirebaseToken = async (firebaseUser) => {
     try {
       console.log('🔍 Getting Firebase token for:', firebaseUser.email)
-      const token = await firebaseUser.getIdToken(true) // Force refresh token
+      const token = await firebaseUser.getIdToken(true)
       localStorage.setItem('auth-token', token)
       console.log('✅ Token stored successfully')
       return token
@@ -69,10 +84,9 @@ export default function POSLoginPage() {
       if (!response.ok) {
         console.error('❌ Backend error:', data.error)
         
-        // Retry on certain errors
         if (retryCount < MAX_RETRIES && (response.status === 401 || response.status === 500)) {
           console.log(`🔄 Retrying... (${retryCount + 1}/${MAX_RETRIES})`)
-          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1))) // Exponential backoff
+          await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)))
           return getUserFromBackend(email, retryCount + 1)
         }
         
@@ -80,7 +94,6 @@ export default function POSLoginPage() {
       }
       
       if (data.exists && data.user) {
-        // Store complete user info in localStorage
         localStorage.setItem('user-info', JSON.stringify(data.user))
         console.log('✅ User info stored in localStorage')
         return data.user
@@ -90,7 +103,6 @@ export default function POSLoginPage() {
     } catch (error) {
       console.error('❌ Error fetching user from backend:', error)
       
-      // Retry on network errors
       if (retryCount < MAX_RETRIES && error.message.includes('fetch')) {
         console.log(`🔄 Retrying due to network error... (${retryCount + 1}/${MAX_RETRIES})`)
         await new Promise(resolve => setTimeout(resolve, 1000 * (retryCount + 1)))
@@ -101,28 +113,22 @@ export default function POSLoginPage() {
     }
   }
 
-  // Validate POS access with retry and delay
+  // Validate POS access
   const validatePOSAccess = async (firebaseUser) => {
     const startTime = Date.now()
-    const MIN_WAIT_TIME = 5000 // 5 seconds minimum wait
+    const MIN_WAIT_TIME = 5000
     
     try {
       console.log('🔍 Starting POS access validation for:', firebaseUser.email)
       
-      // Step 1: Store Firebase token
       await storeFirebaseToken(firebaseUser)
-      
-      // Step 2: Small delay to ensure token is persisted
       await new Promise(resolve => setTimeout(resolve, 200))
 
-      // Step 3: Get user data from database with retry
       const dbUser = await getUserFromBackend(firebaseUser.email)
 
-      // Step 4: Check if user has POS or admin role
       if (dbUser.role !== 'pos' && dbUser.role !== 'admin') {
         console.log('❌ Access denied: Role is', dbUser.role)
         
-        // Wait remaining time before showing error
         const elapsed = Date.now() - startTime
         if (elapsed < MIN_WAIT_TIME) {
           await new Promise(resolve => setTimeout(resolve, MIN_WAIT_TIME - elapsed))
@@ -140,11 +146,9 @@ export default function POSLoginPage() {
         return null
       }
 
-      // Step 5: Check if user has been assigned a branch
       if (!dbUser.branch) {
         console.log('❌ No branch assigned')
         
-        // Wait remaining time before showing error
         const elapsed = Date.now() - startTime
         if (elapsed < MIN_WAIT_TIME) {
           await new Promise(resolve => setTimeout(resolve, MIN_WAIT_TIME - elapsed))
@@ -170,7 +174,6 @@ export default function POSLoginPage() {
     } catch (error) {
       console.error('❌ Error in validatePOSAccess:', error)
       
-      // Wait remaining time before showing error
       const elapsed = Date.now() - startTime
       if (elapsed < MIN_WAIT_TIME) {
         console.log(`⏳ Waiting ${MIN_WAIT_TIME - elapsed}ms before showing error...`)
@@ -181,19 +184,9 @@ export default function POSLoginPage() {
     }
   }
 
-  // Check if already logged in
-  useEffect(() => {
-    if (user) {
-      const userInfo = JSON.parse(localStorage.getItem('user-info') || '{}')
-      
-      // Check if user has POS or admin role
-      if (userInfo.role === 'pos' || userInfo.role === 'admin') {
-        router.push('/Inventory')
-      }
-    }
-  }, [user, router])
+  // 🔥 REMOVED: Auto-redirect useEffect - we want users to login every time
 
-  // Google login function with silent error handling
+  // Google login function
   const handleGoogleLoginAndRedirect = async () => {
     setIsLoading(true)
     try {
@@ -205,9 +198,8 @@ export default function POSLoginPage() {
         const dbUser = await validatePOSAccess(result.user)
         
         if (dbUser) {
-          console.log('✅ Redirecting to POS...')
+          console.log('✅ Redirecting to Inventory...')
           
-          // Show success toast
           Swal.fire({
             toast: true,
             position: 'top-end',
@@ -219,18 +211,15 @@ export default function POSLoginPage() {
             timerProgressBar: true,
           })
           
-          // Small delay before redirect
           await new Promise(resolve => setTimeout(resolve, 100))
           router.push('/Inventory')
         } else {
-          // User validation returned null (already showed error in validatePOSAccess)
           console.log('❌ POS validation failed')
         }
       }
     } catch (error) {
       console.error('❌ Google Sign-In Error:', error)
       
-      // Only show error if it's not a validation error (those are already handled)
       if (!error.message.includes('permission') && !error.message.includes('branch')) {
         Swal.fire({
           icon: 'error',
@@ -244,7 +233,7 @@ export default function POSLoginPage() {
     }
   }
 
-  // Apple login function with silent error handling
+  // Apple login function
   const handleAppleLoginAndRedirect = async () => {
     setIsLoading(true)
     try {
@@ -256,9 +245,8 @@ export default function POSLoginPage() {
         const dbUser = await validatePOSAccess(result.user)
         
         if (dbUser) {
-          console.log('✅ Redirecting to POS...')
+          console.log('✅ Redirecting to Inventory...')
           
-          // Show success toast
           Swal.fire({
             toast: true,
             position: 'top-end',
@@ -270,18 +258,15 @@ export default function POSLoginPage() {
             timerProgressBar: true,
           })
           
-          // Small delay before redirect
           await new Promise(resolve => setTimeout(resolve, 100))
           router.push('/Inventory')
         } else {
-          // User validation returned null (already showed error in validatePOSAccess)
           console.log('❌ POS validation failed')
         }
       }
     } catch (error) {
       console.error('❌ Apple Sign-In Error:', error)
       
-      // Only show error if it's not a validation error (those are already handled)
       if (!error.message.includes('permission') && !error.message.includes('branch')) {
         Swal.fire({
           icon: 'error',
@@ -295,14 +280,13 @@ export default function POSLoginPage() {
     }
   }
 
-  // Form Submit For Login with silent error handling
+  // Form Submit For Login
   const onSubmit = async (data) => {
     setIsLoading(true)
 
     try {
       console.log('🔍 Starting email/password login...')
       
-      // Sign in with Firebase
       const result = await signIn(data.email, data.password)
       console.log('✅ Firebase sign-in successful:', result.user.email)
 
@@ -321,9 +305,8 @@ export default function POSLoginPage() {
       const dbUser = await validatePOSAccess(result.user)
 
       if (dbUser) {
-        console.log('✅ Redirecting to POS...')
+        console.log('✅ Redirecting to Inventory...')
         
-        // Show success toast
         Swal.fire({
           toast: true,
           position: 'top-end',
@@ -335,19 +318,15 @@ export default function POSLoginPage() {
           timerProgressBar: true,
         })
 
-        // Small delay before redirect
         await new Promise(resolve => setTimeout(resolve, 100))
         router.push('/Inventory')
       } else {
-        // User validation returned null (already showed error in validatePOSAccess)
         console.log('❌ POS validation failed')
       }
     } catch (error) {
       console.error('❌ Login error:', error)
 
-      // Only show error if it's not a validation error
       if (error.message && (error.message.includes('permission') || error.message.includes('branch'))) {
-        // Already handled in validatePOSAccess
         setIsLoading(false)
         return
       }
