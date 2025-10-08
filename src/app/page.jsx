@@ -23,14 +23,12 @@ export default function POSLoginPage() {
     formState: { errors, isValid },
   } = useForm({ mode: 'onChange' })
 
-  // 🔥 NEW: Clear auth data on page load - force re-login
+  // Clear auth data on page load - force re-login
   useEffect(() => {
-    // Clear all auth data
     localStorage.removeItem('auth-token')
     localStorage.removeItem('user-info')
     sessionStorage.clear()
     
-    // Sign out from Firebase
     if (user) {
       logOut().catch(err => console.log('Logout error:', err))
     }
@@ -113,7 +111,7 @@ export default function POSLoginPage() {
     }
   }
 
-  // Validate POS access
+  // 🔥 FIXED: Validate POS access with admin exception
   const validatePOSAccess = async (firebaseUser) => {
     const startTime = Date.now()
     const MIN_WAIT_TIME = 5000
@@ -126,7 +124,14 @@ export default function POSLoginPage() {
 
       const dbUser = await getUserFromBackend(firebaseUser.email)
 
-      if (dbUser.role !== 'pos' && dbUser.role !== 'admin') {
+      // 🔥 FIXED: Check if user is admin first - admins bypass all checks
+      if (dbUser.role === 'admin') {
+        console.log('✅ Admin access granted - bypassing branch check')
+        return dbUser
+      }
+
+      // For non-admin users, validate role and branch
+      if (dbUser.role !== 'pos') {
         console.log('❌ Access denied: Role is', dbUser.role)
         
         const elapsed = Date.now() - startTime
@@ -146,8 +151,9 @@ export default function POSLoginPage() {
         return null
       }
 
+      // 🔥 FIXED: Only check branch for POS users (not admin)
       if (!dbUser.branch) {
-        console.log('❌ No branch assigned')
+        console.log('❌ No branch assigned for POS user')
         
         const elapsed = Date.now() - startTime
         if (elapsed < MIN_WAIT_TIME) {
@@ -184,8 +190,6 @@ export default function POSLoginPage() {
     }
   }
 
-  // 🔥 REMOVED: Auto-redirect useEffect - we want users to login every time
-
   // Google login function
   const handleGoogleLoginAndRedirect = async () => {
     setIsLoading(true)
@@ -198,21 +202,26 @@ export default function POSLoginPage() {
         const dbUser = await validatePOSAccess(result.user)
         
         if (dbUser) {
-          console.log('✅ Redirecting to Inventory...')
+          console.log('✅ Redirecting to Dashboard...')
+          
+          // 🔥 FIXED: Handle admin without branch gracefully
+          const branchText = dbUser.branch 
+            ? `Branch: ${dbUser.branch.charAt(0).toUpperCase() + dbUser.branch.slice(1)}`
+            : 'Admin Access - All Branches'
           
           Swal.fire({
             toast: true,
             position: 'top-end',
             icon: 'success',
             title: `Welcome, ${dbUser.name}!`,
-            text: `Branch: ${dbUser.branch.charAt(0).toUpperCase() + dbUser.branch.slice(1)}`,
+            text: branchText,
             showConfirmButton: false,
             timer: 2000,
             timerProgressBar: true,
           })
           
           await new Promise(resolve => setTimeout(resolve, 100))
-          router.push('/Inventory')
+          router.push('/Dashboard')
         } else {
           console.log('❌ POS validation failed')
         }
@@ -245,21 +254,26 @@ export default function POSLoginPage() {
         const dbUser = await validatePOSAccess(result.user)
         
         if (dbUser) {
-          console.log('✅ Redirecting to Inventory...')
+          console.log('✅ Redirecting to Dashboard...')
+          
+          // 🔥 FIXED: Handle admin without branch gracefully
+          const branchText = dbUser.branch 
+            ? `Branch: ${dbUser.branch.charAt(0).toUpperCase() + dbUser.branch.slice(1)}`
+            : 'Admin Access - All Branches'
           
           Swal.fire({
             toast: true,
             position: 'top-end',
             icon: 'success',
             title: `Welcome, ${dbUser.name}!`,
-            text: `Branch: ${dbUser.branch.charAt(0).toUpperCase() + dbUser.branch.slice(1)}`,
+            text: branchText,
             showConfirmButton: false,
             timer: 2000,
             timerProgressBar: true,
           })
           
           await new Promise(resolve => setTimeout(resolve, 100))
-          router.push('/Inventory')
+          router.push('/Dashboard')
         } else {
           console.log('❌ POS validation failed')
         }
@@ -305,21 +319,26 @@ export default function POSLoginPage() {
       const dbUser = await validatePOSAccess(result.user)
 
       if (dbUser) {
-        console.log('✅ Redirecting to Inventory...')
+        console.log('✅ Redirecting to Dashboard...')
+        
+        // 🔥 FIXED: Handle admin without branch gracefully
+        const branchText = dbUser.branch 
+          ? `Branch: ${dbUser.branch.charAt(0).toUpperCase() + dbUser.branch.slice(1)}`
+          : 'Admin Access - All Branches'
         
         Swal.fire({
           toast: true,
           position: 'top-end',
           icon: 'success',
           title: `Welcome, ${dbUser.name}!`,
-          text: `Branch: ${dbUser.branch.charAt(0).toUpperCase() + dbUser.branch.slice(1)}`,
+          text: branchText,
           showConfirmButton: false,
           timer: 2000,
           timerProgressBar: true,
         })
 
         await new Promise(resolve => setTimeout(resolve, 100))
-        router.push('/Inventory')
+        router.push('/Dashboard')
       } else {
         console.log('❌ POS validation failed')
       }
@@ -370,16 +389,16 @@ export default function POSLoginPage() {
             <h1 className="text-3xl font-bold text-gray-900">VWV INVENTORY SYSTEM</h1>
             <p className="text-gray-600 flex items-center justify-center gap-2">
               <ShieldCheck size={18} className="text-purple-600" />
-              Point of Sale Login
+              inventory Management Login
             </p>
           </div>
 
           {/* Info Banner */}
           <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
             <p className="text-sm text-purple-800 text-center">
-              <strong>POS Access Only</strong>
+              <strong>ADMIN & POS Access Only</strong>
               <br />
-              Only authorized POS users can access this system
+              Only authorized ADMIN & POS users can access this system
             </p>
           </div>
 
@@ -463,7 +482,7 @@ export default function POSLoginPage() {
               ) : (
                 <>
                   <Store size={20} className="mr-2" />
-                  Login to POS
+                  Login to System
                 </>
               )}
             </button>
@@ -508,7 +527,7 @@ export default function POSLoginPage() {
           {/* Footer Links */}
           <div className="pt-4 border-t border-gray-200 space-y-3">
             <p className="text-center text-sm text-gray-600">
-              Don't have POS access?{' '}
+              Don't have access?{' '}
               <a
                 target='_blank'
                 href="https://vwv-bd.vercel.app/"
@@ -518,14 +537,14 @@ export default function POSLoginPage() {
               </a>
             </p>
             <p className="text-center text-xs text-gray-500">
-              Contact your administrator to request POS access
+              Contact your administrator to request access
             </p>
           </div>
         </div>
 
         {/* Version Info */}
         <div className="text-center mt-6 text-sm text-gray-500">
-          VWV POS System v1.0
+          VWV Inventory System v1.0
         </div>
       </div>
     </div>
