@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
+import { useBranch } from '@/contexts/BranchContext'
 import { 
   TrendingUp,
   TrendingDown,
@@ -14,18 +15,24 @@ import {
   ArrowUp,
   ArrowDown,
   Package,
-  CreditCard
+  CreditCard,
+  Building,
+  ChevronDown,
+  Check
 } from 'lucide-react'
+import Swal from 'sweetalert2'
 
 export default function DashboardPage() {
+  const { selectedBranch, changeBranch } = useBranch()
   const [userInfo, setUserInfo] = useState(null)
   const [isLoading, setIsLoading] = useState(true)
+  const [branches, setBranches] = useState([])
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
   const [dateRange, setDateRange] = useState({
-    start: new Date(new Date().setDate(1)).toISOString().split('T')[0], // First day of month
-    end: new Date().toISOString().split('T')[0] // Today
+    start: new Date(new Date().setDate(1)).toISOString().split('T')[0],
+    end: new Date().toISOString().split('T')[0]
   })
   
-  // Dashboard data
   const [summary, setSummary] = useState({
     totalRevenue: 0,
     totalExpenses: 0,
@@ -41,7 +48,6 @@ export default function DashboardPage() {
   const [recentSales, setRecentSales] = useState([])
   const [topExpenseCategories, setTopExpenseCategories] = useState([])
 
-  // Quick date filters
   const quickFilters = [
     { label: 'Today', days: 0 },
     { label: 'Yesterday', days: 1 },
@@ -59,11 +65,55 @@ export default function DashboardPage() {
     }
   }, [])
 
+  // Fetch branches for admin
   useEffect(() => {
-    if (userInfo) {
+    if (userInfo?.role === 'admin') {
+      fetchBranches()
+    }
+  }, [userInfo])
+
+  // 🔥 UPDATED: Fetch data when branch or date changes
+  useEffect(() => {
+    if (userInfo && (selectedBranch || userInfo.role === 'pos')) {
       fetchDashboardData()
     }
-  }, [userInfo, dateRange])
+  }, [userInfo, dateRange, selectedBranch])
+
+  const fetchBranches = async () => {
+    try {
+      const token = localStorage.getItem('auth-token')
+      const response = await fetch('/api/branches', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        if (data.branches && Array.isArray(data.branches)) {
+          setBranches(data.branches)
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching branches:', error)
+    }
+  }
+
+  const handleBranchChange = (branch) => {
+    changeBranch(branch)
+    setIsBranchDropdownOpen(false)
+    
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Switched to ${branch.charAt(0).toUpperCase() + branch.slice(1)} Branch`,
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+    })
+  }
 
   const fetchDashboardData = async () => {
     setIsLoading(true)
@@ -79,14 +129,20 @@ export default function DashboardPage() {
     }
   }
 
+  // 🔥 UPDATED: Add branch filter to sales API
   const fetchSales = async () => {
     try {
       const token = localStorage.getItem('auth-token')
+      const currentBranch = selectedBranch || userInfo?.branch
+      
       const params = new URLSearchParams({
         startDate: dateRange.start,
         endDate: dateRange.end,
-        limit: 100
+        branch: currentBranch, // 🔥 Filter by selected branch
+        limit: 1000
       })
+
+      console.log('🔍 Fetching sales for branch:', currentBranch)
 
       const response = await fetch(`/api/sales?${params}`, {
         headers: {
@@ -97,6 +153,7 @@ export default function DashboardPage() {
 
       if (response.ok) {
         const data = await response.json()
+        console.log('✅ Sales data received:', data.sales?.length, 'sales')
         setSalesData(data.sales || [])
         setRecentSales((data.sales || []).slice(0, 5))
         calculateSalesMetrics(data.sales || [])
@@ -106,14 +163,20 @@ export default function DashboardPage() {
     }
   }
 
+  // 🔥 UPDATED: Add branch filter to expenses API
   const fetchExpenses = async () => {
     try {
       const token = localStorage.getItem('auth-token')
+      const currentBranch = selectedBranch || userInfo?.branch
+      
       const params = new URLSearchParams({
         startDate: dateRange.start,
         endDate: dateRange.end,
-        limit: 100
+        branch: currentBranch, // 🔥 Filter by selected branch
+        limit: 1000
       })
+
+      console.log('🔍 Fetching expenses for branch:', currentBranch)
 
       const response = await fetch(`/api/expenses?${params}`, {
         headers: {
@@ -124,8 +187,23 @@ export default function DashboardPage() {
 
       if (response.ok) {
         const data = await response.json()
+        console.log('✅ Expenses data received:', data.expenses?.length, 'expenses')
         setExpensesData(data.expenses || [])
-        calculateExpensesMetrics(data.expenses || [], data.summary?.categoryBreakdown || [])
+        
+        // Calculate category breakdown
+        const categoryBreakdown = data.expenses?.reduce((acc, expense) => {
+          const cat = expense.category
+          const existing = acc.find(item => item.category === cat)
+          if (existing) {
+            existing.total += expense.amount
+            existing.count += 1
+          } else {
+            acc.push({ category: cat, total: expense.amount, count: 1 })
+          }
+          return acc
+        }, []).sort((a, b) => b.total - a.total) || []
+        
+        calculateExpensesMetrics(data.expenses || [], categoryBreakdown)
       }
     } catch (error) {
       console.error('Error fetching expenses:', error)
@@ -149,7 +227,6 @@ export default function DashboardPage() {
   const calculateExpensesMetrics = (expenses, categoryBreakdown) => {
     const totalExpenses = expenses.reduce((sum, expense) => sum + expense.amount, 0)
     
-    // Set top expense categories
     setTopExpenseCategories(categoryBreakdown.slice(0, 5))
 
     setSummary(prev => {
@@ -171,27 +248,22 @@ export default function DashboardPage() {
 
     if (filter.days !== undefined) {
       if (filter.days === 0) {
-        // Today
         start = new Date(today)
         end = new Date(today)
       } else if (filter.days === 1) {
-        // Yesterday
         const yesterday = new Date(today)
         yesterday.setDate(yesterday.getDate() - 1)
         start = yesterday
         end = yesterday
       } else {
-        // Last N days
         start = new Date(today)
         start.setDate(start.getDate() - filter.days)
         end = today
       }
     } else if (filter.type === 'month') {
-      // This month
       start = new Date(today.getFullYear(), today.getMonth(), 1)
       end = today
     } else if (filter.type === 'lastMonth') {
-      // Last month
       start = new Date(today.getFullYear(), today.getMonth() - 1, 1)
       end = new Date(today.getFullYear(), today.getMonth(), 0)
     }
@@ -210,44 +282,121 @@ export default function DashboardPage() {
     return category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
   }
 
-  if (isLoading && !salesData.length && !expensesData.length) {
+  // Show branch selection prompt for admin if no branch selected
+  if (userInfo?.role === 'admin' && !selectedBranch) {
     return (
       <DashboardLayout>
-        <div className="p-8 flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading dashboard...</p>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center bg-white p-8 rounded-xl shadow-lg max-w-md">
+            <Building className="w-16 h-16 mx-auto text-purple-600 mb-4" />
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Select a Branch</h2>
+            <p className="text-gray-600 mb-6">Please select a branch from the sidebar to view dashboard data</p>
+            <div className="space-y-2">
+              {branches.map((branch) => (
+                <button
+                  key={branch}
+                  onClick={() => handleBranchChange(branch)}
+                  className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors capitalize font-medium"
+                >
+                  {branch}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </DashboardLayout>
     )
   }
 
+  if (isLoading && !salesData.length && !expensesData.length) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading dashboard data for {selectedBranch || userInfo?.branch}...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const currentBranch = selectedBranch || userInfo?.branch
+
   return (
     <DashboardLayout>
       <div className="p-8">
-        {/* Header */}
+        {/* Header with Branch Selector */}
         <div className="mb-8">
-          <div className="flex justify-between items-center">
-            <div>
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
               <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
                 <TrendingUp className="w-8 h-8 text-purple-600" />
                 Business Dashboard
               </h1>
-              <p className="text-gray-500 mt-1">
-                Overview of sales, expenses, and revenue
-                {userInfo?.branch && (
-                  <span className="ml-2 text-purple-600 font-medium">
-                    • {userInfo.branch.charAt(0).toUpperCase() + userInfo.branch.slice(1)} Branch
+              <div className="flex items-center gap-4 mt-2">
+                <p className="text-gray-500">
+                  Overview of sales, expenses, and revenue
+                </p>
+                
+                {/* Admin Branch Selector */}
+                {userInfo?.role === 'admin' && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      <Building className="w-4 h-4" />
+                      <span className="capitalize">{currentBranch}</span>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isBranchDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsBranchDropdownOpen(false)}
+                        />
+                        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-purple-200 z-50 min-w-[200px]">
+                          <div className="py-1">
+                            {branches.map((branch) => (
+                              <button
+                                key={branch}
+                                onClick={() => handleBranchChange(branch)}
+                                className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${
+                                  selectedBranch === branch ? 'bg-purple-100' : ''
+                                }`}
+                              >
+                                <span className="text-sm font-medium text-gray-700 capitalize">
+                                  {branch}
+                                </span>
+                                {selectedBranch === branch && (
+                                  <Check className="w-4 h-4 text-purple-600" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* POS Branch Display */}
+                {userInfo?.role === 'pos' && userInfo?.branch && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium capitalize flex items-center gap-1">
+                    <Building className="w-4 h-4" />
+                    {userInfo.branch} Branch
                   </span>
                 )}
-              </p>
+              </div>
             </div>
             <button
               onClick={fetchDashboardData}
               className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+              disabled={isLoading}
             >
-              <RefreshCw className="w-4 h-4" />
+              <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
             </button>
           </div>
@@ -297,8 +446,9 @@ export default function DashboardPage() {
             <button
               onClick={fetchDashboardData}
               className="px-6 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+              disabled={isLoading}
             >
-              Apply Filter
+              {isLoading ? 'Loading...' : 'Apply Filter'}
             </button>
           </div>
         </div>
@@ -522,7 +672,7 @@ export default function DashboardPage() {
           ) : (
             <div className="text-center text-gray-500 py-12">
               <ShoppingCart className="w-12 h-12 mx-auto text-gray-300 mb-2" />
-              <p>No sales data available</p>
+              <p>No sales data available for {currentBranch}</p>
             </div>
           )}
         </div>

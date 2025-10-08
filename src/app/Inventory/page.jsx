@@ -2,13 +2,15 @@
 
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
-import { Search, Package, AlertCircle, X } from 'lucide-react'
+import { useBranch } from '@/contexts/BranchContext'
+import { Search, Package, AlertCircle, X, Building, ChevronDown, Check } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 export default function InventoryPage() {
+  const { selectedBranch, changeBranch } = useBranch()
   const [userInfo, setUserInfo] = useState(null)
-  const [selectedBranch, setSelectedBranch] = useState('')
   const [availableBranches, setAvailableBranches] = useState([])
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [products, setProducts] = useState([])
   const [filteredProducts, setFilteredProducts] = useState([])
@@ -18,13 +20,11 @@ export default function InventoryPage() {
   useEffect(() => {
     const loadUserData = async () => {
       try {
-        // Get user info from localStorage
         const storedUserInfo = localStorage.getItem('user-info')
         if (storedUserInfo) {
           const parsedUserInfo = JSON.parse(storedUserInfo)
           setUserInfo(parsedUserInfo)
 
-          // Fetch available branches
           const token = localStorage.getItem('auth-token')
           const response = await fetch('/api/branches', {
             headers: {
@@ -36,21 +36,6 @@ export default function InventoryPage() {
           if (response.ok) {
             const data = await response.json()
             setAvailableBranches(data.branches || [])
-
-            // Auto-select branch based on user role
-            if (parsedUserInfo.role === 'pos' && parsedUserInfo.branch) {
-              // POS users can only see their assigned branch
-              setSelectedBranch(parsedUserInfo.branch)
-              // Fetch products for POS user's branch
-              await fetchProductsByBranch(parsedUserInfo.branch, token)
-            } else if (parsedUserInfo.role === 'admin') {
-              // Admin can select any branch, default to first available
-              if (data.branches && data.branches.length > 0) {
-                setSelectedBranch(data.branches[0])
-                // Fetch products for first branch
-                await fetchProductsByBranch(data.branches[0], token)
-              }
-            }
           }
         }
       } catch (error) {
@@ -69,7 +54,15 @@ export default function InventoryPage() {
     loadUserData()
   }, [])
 
-  // Real-time search effect - filters as user types
+  // 🔥 UPDATED: Fetch products when branch changes
+  useEffect(() => {
+    const currentBranch = selectedBranch || userInfo?.branch
+    if (currentBranch) {
+      fetchProductsByBranch(currentBranch)
+    }
+  }, [selectedBranch, userInfo])
+
+  // Real-time search effect
   useEffect(() => {
     if (!searchQuery.trim()) {
       setFilteredProducts(products)
@@ -94,7 +87,6 @@ export default function InventoryPage() {
   const getBranchOptionsStructured = (branchSpecifications, branchName) => {
     if (!branchSpecifications || !branchName) return null
 
-    // Try different case variations to find the branch
     const possibleKeys = [
       branchName,
       branchName.toLowerCase(),
@@ -118,28 +110,24 @@ export default function InventoryPage() {
       colors: []
     }
 
-    // Collect nicotineStrength options
     if (branchSpec.nicotineStrength && Array.isArray(branchSpec.nicotineStrength) && branchSpec.nicotineStrength?.length > 0) {
       options.nicotineStrength = branchSpec.nicotineStrength
     }
 
-    // Collect vgPgRatio options
     if (branchSpec.vgPgRatio && Array.isArray(branchSpec.vgPgRatio) && branchSpec.vgPgRatio.length > 0) {
       options.vgPgRatio = branchSpec.vgPgRatio
     }
 
-    // Collect colors options
     if (branchSpec.colors && Array.isArray(branchSpec.colors) && branchSpec.colors.length > 0) {
       options.colors = branchSpec.colors.map(color => color.charAt(0).toUpperCase() + color.slice(1))
     }
 
-    // Check if any options exist
     const hasOptions = options.nicotineStrength.length > 0 || options.vgPgRatio.length > 0 || options.colors.length > 0
 
     return hasOptions ? options : null
   }
 
-  // Fetch products by branch
+  // 🔥 UPDATED: Fetch products by branch
   const fetchProductsByBranch = async (branch, token = null) => {
     if (!branch) return
 
@@ -147,7 +135,8 @@ export default function InventoryPage() {
     try {
       const authToken = token || localStorage.getItem('auth-token')
       
-      // Fetch ALL products (no inStock filter to include 0 stock items)
+      console.log('🔍 Fetching products for branch:', branch)
+      
       const response = await fetch(`/api/products?limit=1000`, {
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -157,15 +146,13 @@ export default function InventoryPage() {
 
       if (response.ok) {
         const data = await response.json()
-        console.log('Fetched products:', data.products.length)
+        console.log('✅ Fetched products:', data.products.length)
         
-        // Process products to show branch-specific stock and options
         const processedProducts = data.products.map((product, index) => {
           const branchStockKey = `${branch}_stock`
           const stockQty = product.stock?.[branchStockKey] || 0
           const branchOptions = getBranchOptionsStructured(product.branchSpecifications, branch)
 
-          // Create text version for search
           let branchOptionsText = ''
           if (branchOptions) {
             const parts = []
@@ -194,7 +181,7 @@ export default function InventoryPage() {
 
         setProducts(processedProducts)
         setFilteredProducts(processedProducts)
-        console.log('Processed products for branch:', branch, processedProducts.length)
+        console.log('✅ Processed products for branch:', branch, processedProducts.length)
       } else {
         throw new Error('Failed to fetch products')
       }
@@ -213,19 +200,52 @@ export default function InventoryPage() {
     }
   }
 
-  // Handle branch change (only for admin)
-  const handleBranchChange = async (e) => {
-    const newBranch = e.target.value
-    if (userInfo?.role === 'admin') {
-      setSelectedBranch(newBranch)
-      setSearchQuery('') // Clear search when changing branch
-      await fetchProductsByBranch(newBranch)
-    }
+  // 🔥 UPDATED: Handle branch change from dropdown
+  const handleBranchChange = (branch) => {
+    changeBranch(branch)
+    setIsBranchDropdownOpen(false)
+    setSearchQuery('')
+    
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Switched to ${branch.charAt(0).toUpperCase() + branch.slice(1)} Branch`,
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+    })
   }
 
   // Clear search
   const handleClearSearch = () => {
     setSearchQuery('')
+  }
+
+  // Show branch selection prompt for admin if no branch selected
+  if (userInfo?.role === 'admin' && !selectedBranch) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center bg-white p-8 rounded-xl shadow-lg max-w-md">
+            <Building className="w-16 h-16 mx-auto text-purple-600 mb-4" />
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Select a Branch</h2>
+            <p className="text-gray-600 mb-6">Please select a branch from the sidebar to view inventory</p>
+            <div className="space-y-2">
+              {availableBranches.map((branch) => (
+                <button
+                  key={branch}
+                  onClick={() => handleBranchChange(branch)}
+                  className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors capitalize font-medium"
+                >
+                  {branch}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   if (isLoading) {
@@ -234,91 +254,110 @@ export default function InventoryPage() {
         <div className="p-8 flex items-center justify-center min-h-screen">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading inventory...</p>
+            <p className="text-gray-600">Loading inventory for {selectedBranch || userInfo?.branch}...</p>
           </div>
         </div>
       </DashboardLayout>
     )
   }
 
+  const currentBranch = selectedBranch || userInfo?.branch
+
   return (
     <DashboardLayout>
       <div className="p-8">
-        {/* Header */}
+        {/* Header with Branch Selector */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-800">Current Stock</h1>
-          <p className="text-gray-500 mt-1">
-            Manage your inventory
-            {userInfo?.branch && userInfo?.role === 'pos' && (
-              <span className="ml-2 text-purple-600 font-medium">
-                • {userInfo.branch.charAt(0).toUpperCase() + userInfo.branch.slice(1)} Branch
-              </span>
-            )}
-          </p>
-        </div>
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-800">Current Stock</h1>
+              <div className="flex items-center gap-4 mt-2">
+                <p className="text-gray-500">Manage your inventory</p>
+                
+                {/* Admin Branch Selector */}
+                {userInfo?.role === 'admin' && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      <Building className="w-4 h-4" />
+                      <span className="capitalize">{currentBranch}</span>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
 
-        {/* Filters */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Branch Selector */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Branch
-                {userInfo?.role === 'pos' && (
-                  <span className="ml-2 text-xs text-purple-600">(Your Branch)</span>
+                    {isBranchDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsBranchDropdownOpen(false)}
+                        />
+                        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-purple-200 z-50 min-w-[200px]">
+                          <div className="py-1">
+                            {availableBranches.map((branch) => (
+                              <button
+                                key={branch}
+                                onClick={() => handleBranchChange(branch)}
+                                className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${
+                                  selectedBranch === branch ? 'bg-purple-100' : ''
+                                }`}
+                              >
+                                <span className="text-sm font-medium text-gray-700 capitalize">
+                                  {branch}
+                                </span>
+                                {selectedBranch === branch && (
+                                  <Check className="w-4 h-4 text-purple-600" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
                 )}
-              </label>
-              <select
-                value={selectedBranch}
-                onChange={handleBranchChange}
-                disabled={userInfo?.role === 'pos'}
-                className={`w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent ${
-                  userInfo?.role === 'pos' ? 'bg-gray-100 cursor-not-allowed' : ''
-                }`}
-              >
-                {userInfo?.role === 'admin' ? (
-                  availableBranches.map((branch) => (
-                    <option key={branch} value={branch}>
-                      {branch.charAt(0).toUpperCase() + branch.slice(1)}
-                    </option>
-                  ))
-                ) : (
-                  <option value={selectedBranch}>
-                    {selectedBranch ? selectedBranch.charAt(0).toUpperCase() + selectedBranch.slice(1) : 'No Branch Assigned'}
-                  </option>
-                )}
-              </select>
-            </div>
 
-            {/* Real-time Search */}
-            <div className="md:col-span-2">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Search Product
-                {searchQuery && (
-                  <span className="ml-2 text-xs text-purple-600">
-                    ({filteredProducts.length} result{filteredProducts.length !== 1 ? 's' : ''})
+                {/* POS Branch Display */}
+                {userInfo?.role === 'pos' && userInfo?.branch && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium capitalize flex items-center gap-1">
+                    <Building className="w-4 h-4" />
+                    {userInfo.branch} Branch
                   </span>
                 )}
-              </label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Type to search by name, serial, or brand..."
-                  className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                />
-                {searchQuery && (
-                  <button
-                    onClick={handleClearSearch}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
-                    title="Clear search"
-                  >
-                    <X className="w-5 h-5" />
-                  </button>
-                )}
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+          <div className="max-w-2xl">
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Search Product
+              {searchQuery && (
+                <span className="ml-2 text-xs text-purple-600">
+                  ({filteredProducts.length} result{filteredProducts.length !== 1 ? 's' : ''})
+                </span>
+              )}
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Type to search by name, serial, or brand..."
+                className="w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+              />
+              {searchQuery && (
+                <button
+                  onClick={handleClearSearch}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Clear search"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -352,7 +391,7 @@ export default function InventoryPage() {
               <p className="text-gray-400 text-sm mt-2">
                 {searchQuery 
                   ? `No results for "${searchQuery}". Try a different search term.`
-                  : 'No products available for this branch'
+                  : `No products available for ${currentBranch} branch`
                 }
               </p>
             </div>

@@ -11,15 +11,20 @@ import {
   DollarSign, 
   FileText,
   LogOut,
-  User
+  User,
+  Building
 } from 'lucide-react'
 import { AuthContext } from '../Provider/AuthProvider'
+
+import BranchSelector from './BranchSelector'
 import Swal from 'sweetalert2'
+import { useBranch } from '@/contexts/BranchContext'
 
 export default function Sidebar() {
   const pathname = usePathname()
   const router = useRouter()
   const { user, logOut } = useContext(AuthContext)
+  const { clearBranch } = useBranch()
   
   const [userInfo, setUserInfo] = useState(null)
   const [isLoggingOut, setIsLoggingOut] = useState(false)
@@ -71,6 +76,7 @@ export default function Sidebar() {
         // Clear localStorage
         localStorage.removeItem('auth-token')
         localStorage.removeItem('user-info')
+        clearBranch() // 🆕 Clear selected branch
 
         // Show success message
         await Swal.fire({
@@ -139,6 +145,7 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 bg-gradient-to-b from-purple-900 via-purple-800 to-violet-900 min-h-screen text-white flex flex-col shadow-2xl">
+      
       {/* Footer/User Section */}
       <div className="p-4 border-t border-purple-700 space-y-3">
         {/* User Info */}
@@ -172,15 +179,18 @@ export default function Sidebar() {
           </span>
         </button>
 
-        {/* Branch Badge (if assigned) */}
-        {userInfo?.branch && (
+        {/* 🆕 Branch Selector (Admin) or Branch Badge (POS) */}
+        {userInfo?.role === 'admin' ? (
+          <BranchSelector />
+        ) : userInfo?.branch ? (
           <div className="px-3 py-2 bg-gradient-to-r from-purple-700/50 to-violet-700/50 rounded-lg border border-purple-600/30">
             <p className="text-xs text-purple-200 mb-1">Branch</p>
             <p className="text-sm font-medium capitalize">{userInfo.branch}</p>
           </div>
-        )}
+        ) : null}
       </div>
 
+      
       {/* Navigation Menu */}
       <nav className="flex-1 py-6">
         <ul className="space-y-1 px-3">
