@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
 import { useBranch } from '@/contexts/BranchContext'
-import { Search, Package, AlertCircle, X, Building, ChevronDown, Check } from 'lucide-react'
+import { Search, Package, AlertCircle, X, Building, ChevronDown, Check, Plus } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 export default function InventoryPage() {
@@ -15,6 +15,16 @@ export default function InventoryPage() {
   const [products, setProducts] = useState([])
   const [filteredProducts, setFilteredProducts] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  
+  // 🆕 Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState(null)
+  const [modalData, setModalData] = useState({
+    price: '',
+    buyingPrice: '',
+    currentStock: 0,
+    addStock: ''
+  })
 
   // Load user info and branches on mount
   useEffect(() => {
@@ -54,7 +64,7 @@ export default function InventoryPage() {
     loadUserData()
   }, [])
 
-  // 🔥 UPDATED: Fetch products when branch changes
+  // Fetch products when branch changes
   useEffect(() => {
     const currentBranch = selectedBranch || userInfo?.branch
     if (currentBranch) {
@@ -127,7 +137,7 @@ export default function InventoryPage() {
     return hasOptions ? options : null
   }
 
-  // 🔥 UPDATED: Fetch products by branch
+  // Fetch products by branch
   const fetchProductsByBranch = async (branch, token = null) => {
     if (!branch) return
 
@@ -171,11 +181,13 @@ export default function InventoryPage() {
             serial: product.barcode || 'N/A',
             qty: stockQty,
             price: product.price,
+            buyingPrice: product.buyingPrice || 0, // 🆕 Add buying price
             category: product.category,
             subcategory: product.subcategory,
             brand: product.brand,
             image: product.images?.[0]?.url || null,
             branchSpecifications: product.branchSpecifications,
+            fullProduct: product // Store full product for updating
           }
         })
 
@@ -200,7 +212,7 @@ export default function InventoryPage() {
     }
   }
 
-  // 🔥 UPDATED: Handle branch change from dropdown
+  // Handle branch change from dropdown
   const handleBranchChange = (branch) => {
     changeBranch(branch)
     setIsBranchDropdownOpen(false)
@@ -221,6 +233,140 @@ export default function InventoryPage() {
   const handleClearSearch = () => {
     setSearchQuery('')
   }
+
+  // 🆕 Open update modal
+  const openUpdateModal = (product) => {
+    const currentBranch = selectedBranch || userInfo?.branch
+    setSelectedProduct(product)
+    setModalData({
+      price: product.price || '',
+      buyingPrice: product.buyingPrice || '',
+      currentStock: product.qty || 0,
+      addStock: ''
+    })
+    setIsModalOpen(true)
+  }
+
+  // 🆕 Handle modal input changes
+  const handleModalChange = (field, value) => {
+    setModalData(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+// 🆕 Handle stock update
+const handleStockUpdate = async () => {
+  try {
+    const currentBranch = selectedBranch || userInfo?.branch
+    if (!currentBranch) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'No branch selected',
+        confirmButtonColor: '#7c3aed',
+      })
+      return
+    }
+
+    // Validate inputs
+    if (!modalData.price || parseFloat(modalData.price) <= 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Invalid Input',
+        text: 'Please enter a valid price',
+        confirmButtonColor: '#7c3aed',
+      })
+      return
+    }
+
+    if (!modalData.addStock || parseInt(modalData.addStock) <= 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Invalid Input',
+        text: 'Please enter a valid stock quantity to add',
+        confirmButtonColor: '#7c3aed',
+      })
+      return
+    }
+
+    // Calculate new stock
+    const newStock = modalData.currentStock + parseInt(modalData.addStock)
+    const branchStockKey = `${currentBranch}_stock`
+
+    // 🔥 FIXED: Get existing stock object and only update the specific branch
+    const existingStock = selectedProduct.fullProduct.stock || {}
+    const updatedStock = {
+      ...existingStock,
+      [branchStockKey]: newStock
+    }
+
+    // 🔥 FIXED: Prepare update payload with ALL required fields
+    const updatePayload = {
+      action: 'update',
+      id: selectedProduct._id,
+      name: selectedProduct.fullProduct.name, // ✅ Required field
+      price: parseFloat(modalData.price),
+      buyingPrice: parseFloat(modalData.buyingPrice) || 0,
+      category: selectedProduct.fullProduct.category, // ✅ Required field
+      subcategory: selectedProduct.fullProduct.subcategory || '',
+      brand: selectedProduct.fullProduct.brand || '',
+      barcode: selectedProduct.fullProduct.barcode || '',
+      description: selectedProduct.fullProduct.description || '',
+      comparePrice: selectedProduct.fullProduct.comparePrice || 0,
+      stock: updatedStock, // ✅ Only update selected branch stock
+      branchSpecifications: selectedProduct.fullProduct.branchSpecifications || {},
+      images: selectedProduct.fullProduct.images || []
+    }
+
+    console.log('🔍 Updating product:', updatePayload)
+
+    const token = localStorage.getItem('auth-token')
+    const response = await fetch('/api/products', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updatePayload)
+    })
+
+    if (response.ok) {
+      Swal.fire({
+        icon: 'success',
+        title: 'Stock Updated!',
+        html: `
+          <p>Product: <strong>${selectedProduct.productName}</strong></p>
+          <p>Branch: <strong class="capitalize">${currentBranch}</strong></p>
+          <p>Added: <strong>${modalData.addStock} units</strong></p>
+          <p>New Stock: <strong>${newStock} units</strong></p>
+        `,
+        confirmButtonColor: '#7c3aed',
+      })
+
+      // Close modal and refresh
+      setIsModalOpen(false)
+      setSelectedProduct(null)
+      setModalData({ price: '', buyingPrice: '', currentStock: 0, addStock: '' })
+      
+      // Refresh products
+      fetchProductsByBranch(currentBranch)
+    } else {
+      const errorData = await response.json()
+      console.error('❌ Backend error:', errorData)
+      throw new Error(errorData.error || 'Failed to update stock')
+    }
+  } catch (error) {
+    console.error('Error updating stock:', error)
+    Swal.fire({
+      icon: 'error',
+      title: 'Update Failed',
+      text: error.message || 'Failed to update stock. Please try again.',
+      confirmButtonColor: '#7c3aed',
+    })
+  }
+}
+
 
   // Show branch selection prompt for admin if no branch selected
   if (userInfo?.role === 'admin' && !selectedBranch) {
@@ -513,7 +659,11 @@ export default function InventoryPage() {
                       </td>
                       {userInfo?.role === 'admin' && (
                         <td className="px-6 py-4 whitespace-nowrap text-sm">
-                          <button className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md transition-colors shadow-sm hover:shadow-md">
+                          <button 
+                            onClick={() => openUpdateModal(item)}
+                            className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-1.5 rounded-md transition-colors shadow-sm hover:shadow-md flex items-center gap-1"
+                          >
+                            <Plus className="w-4 h-4" />
                             Update
                           </button>
                         </td>
@@ -525,6 +675,110 @@ export default function InventoryPage() {
             </div>
           )}
         </div>
+
+        {/* 🆕 Update Stock Modal */}
+        {isModalOpen && selectedProduct && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full">
+              <div className="p-6 border-b border-gray-200">
+                <h2 className="text-2xl font-bold text-gray-800">Update Stock</h2>
+                <p className="text-sm text-gray-600 mt-1">
+                  {selectedProduct.productName} • <span className="capitalize">{currentBranch}</span> Branch
+                </p>
+              </div>
+
+              <div className="p-6 space-y-4">
+                {/* Price */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Selling Price (৳)
+                  </label>
+                  <input
+                    type="number"
+                    value={modalData.price}
+                    onChange={(e) => handleModalChange('price', e.target.value)}
+                    placeholder="Enter selling price"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+
+                {/* 🆕 Buying Price */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Buying Price (৳)
+                  </label>
+                  <input
+                    type="number"
+                    value={modalData.buyingPrice}
+                    onChange={(e) => handleModalChange('buyingPrice', e.target.value)}
+                    placeholder="Enter buying price"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    min="0"
+                    step="0.01"
+                  />
+                </div>
+
+                {/* Current Stock */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Current Stock
+                  </label>
+                  <input
+                    type="number"
+                    value={modalData.currentStock}
+                    readOnly
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
+                  />
+                </div>
+
+                {/* Add Stock */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Add Stock Quantity
+                  </label>
+                  <input
+                    type="number"
+                    value={modalData.addStock}
+                    onChange={(e) => handleModalChange('addStock', e.target.value)}
+                    placeholder="Enter quantity to add"
+                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                    min="1"
+                  />
+                </div>
+
+                {/* New Stock Preview */}
+                {modalData.addStock && parseInt(modalData.addStock) > 0 && (
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                    <p className="text-sm text-green-800">
+                      <span className="font-semibold">New Stock:</span> {modalData.currentStock + parseInt(modalData.addStock)} units
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-6 border-t border-gray-200 flex gap-3">
+                <button
+                  onClick={() => {
+                    setIsModalOpen(false)
+                    setSelectedProduct(null)
+                    setModalData({ price: '', buyingPrice: '', currentStock: 0, addStock: '' })
+                  }}
+                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleStockUpdate}
+                  className="flex-1 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors font-medium"
+                >
+                  Update Stock
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   )

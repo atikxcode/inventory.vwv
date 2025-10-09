@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
+import { useBranch } from '@/contexts/BranchContext'
 import { 
   Plus, 
   Search, 
@@ -13,11 +14,15 @@ import {
   Eye,
   X,
   Minus,
-  ShoppingCart
+  ShoppingCart,
+  Building,
+  ChevronDown,
+  Check
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 export default function RequisitionPage() {
+  const { selectedBranch, changeBranch } = useBranch()
   const [userInfo, setUserInfo] = useState(null)
   const [requisitions, setRequisitions] = useState([])
   const [filteredRequisitions, setFilteredRequisitions] = useState([])
@@ -25,18 +30,19 @@ export default function RequisitionPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [availableBranches, setAvailableBranches] = useState([])
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
 
   // Create requisition form states
-  const [availableBranches, setAvailableBranches] = useState([])
   const [products, setProducts] = useState([])
-  const [selectedBranch, setSelectedBranch] = useState('')
+  const [selectedSourceBranch, setSelectedSourceBranch] = useState('')
   const [selectedItems, setSelectedItems] = useState([])
   const [productSearch, setProductSearch] = useState('')
   const [notes, setNotes] = useState('')
   const [priority, setPriority] = useState('normal')
   const [isSubmitting, setIsSubmitting] = useState(false)
 
-  // Load user info and requisitions
+  // Load user info and data
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -44,7 +50,6 @@ export default function RequisitionPage() {
         if (storedUserInfo) {
           const parsedUserInfo = JSON.parse(storedUserInfo)
           setUserInfo(parsedUserInfo)
-          await fetchRequisitions(parsedUserInfo)
           await fetchBranches()
           await fetchProducts()
         }
@@ -63,6 +68,14 @@ export default function RequisitionPage() {
 
     loadData()
   }, [])
+
+  // Fetch requisitions when branch changes
+  useEffect(() => {
+    const currentBranch = selectedBranch || userInfo?.branch
+    if (currentBranch && userInfo) {
+      fetchRequisitions(userInfo, currentBranch)
+    }
+  }, [selectedBranch, userInfo])
 
   // Filter requisitions
   useEffect(() => {
@@ -126,11 +139,18 @@ export default function RequisitionPage() {
     }
   }
 
-  // Fetch requisitions
-  const fetchRequisitions = async (user) => {
+  // 🔥 UPDATED: Fetch requisitions filtered by branch
+  const fetchRequisitions = async (user, branch) => {
     try {
       const token = localStorage.getItem('auth-token')
-      const response = await fetch('/api/requisitions?limit=100', {
+      const params = new URLSearchParams({
+        limit: 100,
+        branch: branch // 🔥 Filter by branch
+      })
+
+      console.log('🔍 Fetching requisitions for branch:', branch)
+
+      const response = await fetch(`/api/requisitions?${params}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
@@ -139,6 +159,7 @@ export default function RequisitionPage() {
 
       if (response.ok) {
         const data = await response.json()
+        console.log('✅ Fetched requisitions:', data.requisitions?.length)
         setRequisitions(data.requisitions || [])
         setFilteredRequisitions(data.requisitions || [])
       } else {
@@ -147,6 +168,22 @@ export default function RequisitionPage() {
     } catch (error) {
       console.error('Error fetching requisitions:', error)
     }
+  }
+
+  // Handle branch change from dropdown
+  const handleBranchChange = (branch) => {
+    changeBranch(branch)
+    setIsBranchDropdownOpen(false)
+    
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Switched to ${branch.charAt(0).toUpperCase() + branch.slice(1)} Branch`,
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+    })
   }
 
   // Add item to requisition
@@ -190,7 +227,7 @@ export default function RequisitionPage() {
 
   // Submit requisition
   const handleSubmitRequisition = async () => {
-    if (!selectedBranch) {
+    if (!selectedSourceBranch) {
       Swal.fire({
         icon: 'warning',
         title: 'Source Branch Required',
@@ -222,7 +259,7 @@ export default function RequisitionPage() {
         },
         body: JSON.stringify({
           items: selectedItems,
-          sourceBranch: selectedBranch,
+          sourceBranch: selectedSourceBranch,
           notes: notes,
           priority: priority
         })
@@ -238,13 +275,14 @@ export default function RequisitionPage() {
         
         // Reset form
         setShowCreateModal(false)
-        setSelectedBranch('')
+        setSelectedSourceBranch('')
         setSelectedItems([])
         setNotes('')
         setPriority('normal')
         
         // Refresh requisitions
-        await fetchRequisitions(userInfo)
+        const currentBranch = selectedBranch || userInfo?.branch
+        await fetchRequisitions(userInfo, currentBranch)
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to create requisition')
@@ -298,7 +336,8 @@ export default function RequisitionPage() {
           text: 'Requisition has been approved.',
           confirmButtonColor: '#7c3aed',
         })
-        await fetchRequisitions(userInfo)
+        const currentBranch = selectedBranch || userInfo?.branch
+        await fetchRequisitions(userInfo, currentBranch)
       } else {
         throw new Error('Failed to approve requisition')
       }
@@ -356,7 +395,8 @@ export default function RequisitionPage() {
           text: 'Requisition has been rejected.',
           confirmButtonColor: '#7c3aed',
         })
-        await fetchRequisitions(userInfo)
+        const currentBranch = selectedBranch || userInfo?.branch
+        await fetchRequisitions(userInfo, currentBranch)
       } else {
         throw new Error('Failed to reject requisition')
       }
@@ -406,44 +446,121 @@ export default function RequisitionPage() {
     inTransit: requisitions.filter(r => r.status === 'in-transit').length,
   }
 
-  if (isLoading) {
+  // Show branch selection prompt for admin if no branch selected
+  if (userInfo?.role === 'admin' && !selectedBranch) {
     return (
       <DashboardLayout>
-        <div className="p-8 flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading requisitions...</p>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center bg-white p-8 rounded-xl shadow-lg max-w-md">
+            <Building className="w-16 h-16 mx-auto text-purple-600 mb-4" />
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Select a Branch</h2>
+            <p className="text-gray-600 mb-6">Please select a branch from the sidebar to view requisitions</p>
+            <div className="space-y-2">
+              {availableBranches.map((branch) => (
+                <button
+                  key={branch}
+                  onClick={() => handleBranchChange(branch)}
+                  className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors capitalize font-medium"
+                >
+                  {branch}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </DashboardLayout>
     )
   }
 
+  if (isLoading) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading requisitions for {selectedBranch || userInfo?.branch}...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const currentBranch = selectedBranch || userInfo?.branch
+
   return (
     <DashboardLayout>
       <div className="p-8">
         {/* Header */}
-        <div className="mb-8 flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800">Stock Requisitions</h1>
-            <p className="text-gray-500 mt-1">
-              Manage stock transfer requests
-              {userInfo?.branch && userInfo?.role === 'pos' && (
-                <span className="ml-2 text-purple-600 font-medium">
-                  • {userInfo.branch.charAt(0).toUpperCase() + userInfo.branch.slice(1)} Branch
-                </span>
-              )}
-            </p>
+        <div className="mb-8">
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-800">Stock Requisitions</h1>
+              <div className="flex items-center gap-4 mt-2">
+                <p className="text-gray-500">Manage stock transfer requests</p>
+                
+                {/* Admin Branch Selector */}
+                {userInfo?.role === 'admin' && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      <Building className="w-4 h-4" />
+                      <span className="capitalize">{currentBranch}</span>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isBranchDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsBranchDropdownOpen(false)}
+                        />
+                        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-purple-200 z-50 min-w-[200px]">
+                          <div className="py-1">
+                            {availableBranches.map((branch) => (
+                              <button
+                                key={branch}
+                                onClick={() => handleBranchChange(branch)}
+                                className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${
+                                  selectedBranch === branch ? 'bg-purple-100' : ''
+                                }`}
+                              >
+                                <span className="text-sm font-medium text-gray-700 capitalize">
+                                  {branch}
+                                </span>
+                                {selectedBranch === branch && (
+                                  <Check className="w-4 h-4 text-purple-600" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* POS Branch Display */}
+                {userInfo?.role === 'pos' && userInfo?.branch && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium capitalize flex items-center gap-1">
+                    <Building className="w-4 h-4" />
+                    {userInfo.branch} Branch
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {(userInfo?.role === 'pos' || userInfo?.role === 'admin') && (
+              <button
+                onClick={() => setShowCreateModal(true)}
+                className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors shadow-md hover:shadow-lg flex items-center gap-2"
+              >
+                <Plus className="w-5 h-5" />
+                New Requisition
+              </button>
+            )}
           </div>
-          {(userInfo?.role === 'pos' || userInfo?.role === 'admin') && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors shadow-md hover:shadow-lg flex items-center gap-2"
-            >
-              <Plus className="w-5 h-5" />
-              New Requisition
-            </button>
-          )}
         </div>
 
         {/* Stats */}
@@ -516,7 +633,7 @@ export default function RequisitionPage() {
               <p className="text-gray-400 text-sm mt-2">
                 {searchQuery 
                   ? 'Try adjusting your search or filters'
-                  : 'Create your first requisition to get started'
+                  : `No requisitions for ${currentBranch} branch`
                 }
               </p>
             </div>
@@ -563,7 +680,7 @@ export default function RequisitionPage() {
                         <div className="text-sm font-medium text-gray-900">
                           {req.requestedBy.name}
                         </div>
-                        <div className="text-xs text-gray-500">
+                        <div className="text-xs text-gray-500 capitalize">
                           {req.requestedBy.branch}
                         </div>
                       </td>
@@ -646,13 +763,13 @@ export default function RequisitionPage() {
                     Source Branch *
                   </label>
                   <select
-                    value={selectedBranch}
-                    onChange={(e) => setSelectedBranch(e.target.value)}
+                    value={selectedSourceBranch}
+                    onChange={(e) => setSelectedSourceBranch(e.target.value)}
                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   >
                     <option value="">Select source branch...</option>
                     {availableBranches
-                      .filter(branch => branch !== userInfo?.branch)
+                      .filter(branch => branch !== currentBranch)
                       .map((branch) => (
                         <option key={branch} value={branch}>
                           {branch.charAt(0).toUpperCase() + branch.slice(1)}
@@ -819,7 +936,7 @@ export default function RequisitionPage() {
                 </button>
                 <button
                   onClick={handleSubmitRequisition}
-                  disabled={isSubmitting || selectedItems.length === 0 || !selectedBranch}
+                  disabled={isSubmitting || selectedItems.length === 0 || !selectedSourceBranch}
                   className="px-6 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {isSubmitting ? (

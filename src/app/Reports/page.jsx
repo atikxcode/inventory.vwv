@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
+import { useBranch } from '@/contexts/BranchContext'
 import { 
   FileText,
   Download,
@@ -17,13 +18,16 @@ import {
   FileSpreadsheet,
   Eye,
   Building,
-  BarChart3
+  BarChart3,
+  ChevronDown,
+  Check
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 import jsPDF from 'jspdf'
-import html2canvas from 'html2canvas-pro' // 🔥 FIXED: Use html2canvas-pro instead of regular html2canvas
+import html2canvas from 'html2canvas-pro'
 
 export default function ReportsPage() {
+  const { selectedBranch, changeBranch } = useBranch()
   const [userInfo, setUserInfo] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [selectedReport, setSelectedReport] = useState(null)
@@ -31,8 +35,9 @@ export default function ReportsPage() {
     start: new Date(new Date().setDate(1)).toISOString().split('T')[0],
     end: new Date().toISOString().split('T')[0]
   })
-
   const [reportData, setReportData] = useState(null)
+  const [availableBranches, setAvailableBranches] = useState([])
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
 
   const reportTypes = [
     {
@@ -58,7 +63,7 @@ export default function ReportsPage() {
     {
       id: 'inventory',
       name: 'Inventory Report',
-      description: 'Current stock levels across branches',
+      description: 'Current stock levels for selected branch',
       icon: Package,
       color: 'from-blue-500 to-indigo-600',
       textColor: 'text-blue-600',
@@ -93,7 +98,42 @@ export default function ReportsPage() {
       const parsed = JSON.parse(storedUserInfo)
       setUserInfo(parsed)
     }
+    fetchBranches()
   }, [])
+
+  const fetchBranches = async () => {
+    try {
+      const token = localStorage.getItem('auth-token')
+      const response = await fetch('/api/branches', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableBranches(data.branches || [])
+      }
+    } catch (error) {
+      console.error('Error fetching branches:', error)
+    }
+  }
+
+  const handleBranchChange = (branch) => {
+    changeBranch(branch)
+    setIsBranchDropdownOpen(false)
+    
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Switched to ${branch.charAt(0).toUpperCase() + branch.slice(1)} Branch`,
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+    })
+  }
 
   const generateReport = async (reportType) => {
     setIsLoading(true)
@@ -101,22 +141,25 @@ export default function ReportsPage() {
     
     try {
       const token = localStorage.getItem('auth-token')
+      const currentBranch = selectedBranch || userInfo?.branch
+
+      console.log('🔥 Generating report for branch:', currentBranch)
 
       switch (reportType) {
         case 'sales':
-          await generateSalesReport(token)
+          await generateSalesReport(token, currentBranch)
           break
         case 'expenses':
-          await generateExpensesReport(token)
+          await generateExpensesReport(token, currentBranch)
           break
         case 'inventory':
-          await generateInventoryReport(token)
+          await generateInventoryReport(token, currentBranch)
           break
         case 'orders':
-          await generateOrdersReport(token)
+          await generateOrdersReport(token, currentBranch)
           break
         case 'profit':
-          await generateProfitReport(token)
+          await generateProfitReport(token, currentBranch)
           break
         default:
           throw new Error('Invalid report type')
@@ -131,6 +174,7 @@ export default function ReportsPage() {
         showConfirmButton: false
       })
     } catch (error) {
+      console.error('Report generation error:', error)
       Swal.fire({
         icon: 'error',
         title: 'Error',
@@ -142,12 +186,15 @@ export default function ReportsPage() {
     }
   }
 
-  const generateSalesReport = async (token) => {
+  const generateSalesReport = async (token, branch) => {
     const params = new URLSearchParams({
       startDate: dateRange.start,
       endDate: dateRange.end,
-      limit: 1000
+      limit: 1000,
+      branch: branch
     })
+
+    console.log('🔍 Generating sales report for branch:', branch)
 
     const response = await fetch(`/api/sales?${params}`, {
       headers: {
@@ -181,17 +228,21 @@ export default function ReportsPage() {
           paymentBreakdown
         },
         details: sales,
-        dateRange
+        dateRange,
+        branch
       })
     }
   }
 
-  const generateExpensesReport = async (token) => {
+  const generateExpensesReport = async (token, branch) => {
     const params = new URLSearchParams({
       startDate: dateRange.start,
       endDate: dateRange.end,
-      limit: 1000
+      limit: 1000,
+      branch: branch
     })
+
+    console.log('🔍 Generating expenses report for branch:', branch)
 
     const response = await fetch(`/api/expenses?${params}`, {
       headers: {
@@ -231,13 +282,21 @@ export default function ReportsPage() {
           paymentBreakdown
         },
         details: expenses,
-        dateRange
+        dateRange,
+        branch
       })
     }
   }
 
-  const generateInventoryReport = async (token) => {
-    const response = await fetch('/api/products?limit=1000', {
+  // 🔥 FIXED: Inventory Report now filters by selected branch only
+  const generateInventoryReport = async (token, branch) => {
+    const params = new URLSearchParams({
+      limit: 1000
+    })
+
+    console.log('🔍 Generating inventory report for branch:', branch)
+
+    const response = await fetch(`/api/products?${params}`, {
       headers: {
         'Authorization': `Bearer ${token}`,
         'Content-Type': 'application/json'
@@ -248,28 +307,40 @@ export default function ReportsPage() {
       const data = await response.json()
       const products = data.products || []
       
-      const branchStock = {}
-      let totalProducts = products.length
+      // 🔥 FIX: Calculate stats for ONLY the selected branch
+      const branchStockKey = `${branch}_stock`
+      let totalProducts = 0
       let totalStockValue = 0
       let lowStockItems = 0
+      const branchStock = { [branch]: { quantity: 0, value: 0, products: 0 } }
+
+      // 🔥 FIX: Filter products that have stock in this branch
+      const branchProducts = []
 
       products.forEach(product => {
-        if (product.stock) {
-          Object.keys(product.stock).forEach(branch => {
-            const branchName = branch.replace('_stock', '')
-            if (!branchStock[branchName]) {
-              branchStock[branchName] = { quantity: 0, value: 0, products: 0 }
-            }
-            const qty = product.stock[branch] || 0
-            branchStock[branchName].quantity += qty
-            branchStock[branchName].value += qty * (product.price || 0)
-            branchStock[branchName].products += 1
-
-            totalStockValue += qty * (product.price || 0)
-
-            if (qty < 10) lowStockItems++
-          })
+        if (product.stock && product.stock[branchStockKey] !== undefined) {
+          const qty = product.stock[branchStockKey] || 0
+          
+          // Only include products with stock data for this branch
+          branchProducts.push(product)
+          totalProducts++
+          
+          branchStock[branch].quantity += qty
+          branchStock[branch].value += qty * (product.price || 0)
+          branchStock[branch].products++
+          
+          totalStockValue += qty * (product.price || 0)
+          
+          if (qty < 10) lowStockItems++
         }
+      })
+
+      console.log('✅ Branch inventory:', {
+        branch,
+        totalProducts,
+        totalStockValue,
+        lowStockItems,
+        productsFound: branchProducts.length
       })
 
       setReportData({
@@ -280,18 +351,22 @@ export default function ReportsPage() {
           lowStockItems,
           branchStock
         },
-        details: products,
-        dateRange
+        details: branchProducts, // 🔥 FIX: Only show products for this branch
+        dateRange,
+        branch
       })
     }
   }
 
-  const generateOrdersReport = async (token) => {
+  const generateOrdersReport = async (token, branch) => {
     const params = new URLSearchParams({
       startDate: dateRange.start,
       endDate: dateRange.end,
-      limit: 1000
+      limit: 1000,
+      branch: branch
     })
+
+    console.log('🔍 Generating orders report for branch:', branch)
 
     const response = await fetch(`/api/orders?${params}`, {
       headers: {
@@ -325,17 +400,21 @@ export default function ReportsPage() {
           statusBreakdown
         },
         details: orders,
-        dateRange
+        dateRange,
+        branch
       })
     }
   }
 
-  const generateProfitReport = async (token) => {
+  const generateProfitReport = async (token, branch) => {
     const params = new URLSearchParams({
       startDate: dateRange.start,
       endDate: dateRange.end,
-      limit: 1000
+      limit: 1000,
+      branch: branch
     })
+
+    console.log('🔍 Generating profit report for branch:', branch)
 
     const [salesRes, expensesRes] = await Promise.all([
       fetch(`/api/sales?${params}`, {
@@ -372,12 +451,12 @@ export default function ReportsPage() {
           sales,
           expenses
         },
-        dateRange
+        dateRange,
+        branch
       })
     }
   }
 
-  // 🔥 FIXED: Download PDF Function with html2canvas-pro
   const downloadPDF = async () => {
     if (!reportData) return
 
@@ -397,7 +476,6 @@ export default function ReportsPage() {
         throw new Error('Report content not found')
       }
 
-      // 🔥 FIXED: Use html2canvas-pro with proper configuration
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
@@ -408,7 +486,6 @@ export default function ReportsPage() {
 
       const imgData = canvas.toDataURL('image/png', 1.0)
       
-      // Calculate PDF dimensions
       const pdf = new jsPDF('p', 'mm', 'a4')
       const pdfWidth = pdf.internal.pageSize.getWidth()
       const pageHeight = pdf.internal.pageSize.getHeight()
@@ -418,16 +495,13 @@ export default function ReportsPage() {
       const imgX = (pdfWidth - imgWidth * ratio) / 2
       const imgY = 10
 
-      // Calculate scaled image height
       const scaledHeight = imgHeight * ratio
       let heightLeft = scaledHeight
       let position = imgY
 
-      // Add first page
       pdf.addImage(imgData, 'PNG', imgX, position, imgWidth * ratio, scaledHeight)
       heightLeft -= (pageHeight - imgY)
 
-      // Add additional pages if content is too long
       while (heightLeft > 0) {
         position = heightLeft - scaledHeight + imgY
         pdf.addPage()
@@ -435,7 +509,7 @@ export default function ReportsPage() {
         heightLeft -= pageHeight
       }
       
-      const filename = `${reportData.type}_report_${dateRange.start}_to_${dateRange.end}.pdf`
+      const filename = `${reportData.type}_report_${reportData.branch}_${dateRange.start}_to_${dateRange.end}.pdf`
       pdf.save(filename)
 
       Swal.fire({
@@ -461,7 +535,7 @@ export default function ReportsPage() {
     if (!reportData) return
 
     let csvContent = ''
-    let filename = `${reportData.type}_report_${dateRange.start}_to_${dateRange.end}.csv`
+    let filename = `${reportData.type}_report_${reportData.branch}_${dateRange.start}_to_${dateRange.end}.csv`
 
     switch (reportData.type) {
       case 'sales':
@@ -503,6 +577,7 @@ export default function ReportsPage() {
 
   const generateSalesCSV = (data) => {
     let csv = 'Sales Report\n'
+    csv += `Branch: ${data.branch}\n`
     csv += `Date Range: ${data.dateRange.start} to ${data.dateRange.end}\n\n`
     csv += 'Summary\n'
     csv += `Total Revenue,${data.summary.totalRevenue}\n`
@@ -519,6 +594,7 @@ export default function ReportsPage() {
 
   const generateExpensesCSV = (data) => {
     let csv = 'Expenses Report\n'
+    csv += `Branch: ${data.branch}\n`
     csv += `Date Range: ${data.dateRange.start} to ${data.dateRange.end}\n\n`
     csv += 'Summary\n'
     csv += `Total Expenses,${data.summary.totalExpenses}\n`
@@ -534,16 +610,18 @@ export default function ReportsPage() {
 
   const generateInventoryCSV = (data) => {
     let csv = 'Inventory Report\n'
+    csv += `Branch: ${data.branch}\n`
     csv += `Generated on: ${new Date().toLocaleDateString()}\n\n`
     csv += 'Summary\n'
     csv += `Total Products,${data.summary.totalProducts}\n`
     csv += `Total Stock Value,${data.summary.totalStockValue}\n`
     csv += `Low Stock Items,${data.summary.lowStockItems}\n\n`
-    csv += 'Product Name,Category,Price,Total Stock,Stock Value\n'
+    csv += `Product Name,Category,Price,${data.branch} Stock,Stock Value\n`
     
+    const branchStockKey = `${data.branch}_stock`
     data.details.forEach(product => {
-      const totalStock = Object.values(product.stock || {}).reduce((sum, qty) => sum + qty, 0)
-      csv += `${product.name},${product.category},${product.price},${totalStock},${totalStock * product.price}\n`
+      const branchStock = product.stock?.[branchStockKey] || 0
+      csv += `${product.name},${product.category},${product.price},${branchStock},${branchStock * product.price}\n`
     })
     
     return csv
@@ -551,6 +629,7 @@ export default function ReportsPage() {
 
   const generateOrdersCSV = (data) => {
     let csv = 'Orders Report\n'
+    csv += `Branch: ${data.branch}\n`
     csv += `Date Range: ${data.dateRange.start} to ${data.dateRange.end}\n\n`
     csv += 'Summary\n'
     csv += `Total Orders,${data.summary.totalOrders}\n`
@@ -566,6 +645,7 @@ export default function ReportsPage() {
 
   const generateProfitCSV = (data) => {
     let csv = 'Profit & Loss Report\n'
+    csv += `Branch: ${data.branch}\n`
     csv += `Date Range: ${data.dateRange.start} to ${data.dateRange.end}\n\n`
     csv += 'Summary\n'
     csv += `Total Revenue,${data.summary.totalRevenue}\n`
@@ -588,23 +668,100 @@ export default function ReportsPage() {
     return category.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
   }
 
+  if (userInfo?.role === 'admin' && !selectedBranch) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center bg-white p-8 rounded-xl shadow-lg max-w-md">
+            <Building className="w-16 h-16 mx-auto text-purple-600 mb-4" />
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Select a Branch</h2>
+            <p className="text-gray-600 mb-6">Please select a branch from the sidebar to generate reports</p>
+            <div className="space-y-2">
+              {availableBranches.map((branch) => (
+                <button
+                  key={branch}
+                  onClick={() => handleBranchChange(branch)}
+                  className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors capitalize font-medium"
+                >
+                  {branch}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const currentBranch = selectedBranch || userInfo?.branch
+
   return (
     <DashboardLayout>
       <div className="p-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-            <FileText className="w-8 h-8 text-purple-600" />
-            Reports & Analytics
-          </h1>
-          <p className="text-gray-500 mt-1">
-            Generate and download business reports
-            {userInfo?.branch && (
-              <span className="ml-2 text-purple-600 font-medium">
-                • {userInfo.branch.charAt(0).toUpperCase() + userInfo.branch.slice(1)} Branch
-              </span>
-            )}
-          </p>
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
+                <FileText className="w-8 h-8 text-purple-600" />
+                Reports & Analytics
+              </h1>
+              <div className="flex items-center gap-4 mt-2">
+                <p className="text-gray-500">Generate and download business reports</p>
+                
+                {/* Admin Branch Selector */}
+                {userInfo?.role === 'admin' && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      <Building className="w-4 h-4" />
+                      <span className="capitalize">{currentBranch}</span>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isBranchDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsBranchDropdownOpen(false)}
+                        />
+                        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-purple-200 z-50 min-w-[200px]">
+                          <div className="py-1">
+                            {availableBranches.map((branch) => (
+                              <button
+                                key={branch}
+                                onClick={() => handleBranchChange(branch)}
+                                className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${
+                                  selectedBranch === branch ? 'bg-purple-100' : ''
+                                }`}
+                              >
+                                <span className="text-sm font-medium text-gray-700 capitalize">
+                                  {branch}
+                                </span>
+                                {selectedBranch === branch && (
+                                  <Check className="w-4 h-4 text-purple-600" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* POS Branch Display */}
+                {userInfo?.role === 'pos' && userInfo?.branch && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium capitalize flex items-center gap-1">
+                    <Building className="w-4 h-4" />
+                    {userInfo.branch} Branch
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Date Range Filter */}
@@ -691,6 +848,7 @@ export default function ReportsPage() {
                     {reportTypes.find(r => r.id === reportData.type)?.name}
                   </h2>
                   <p className="text-sm text-gray-600">
+                    Branch: <span className="font-medium capitalize">{reportData.branch}</span> | 
                     Period: {new Date(reportData.dateRange.start).toLocaleDateString()} - {new Date(reportData.dateRange.end).toLocaleDateString()}
                   </p>
                 </div>
@@ -720,7 +878,7 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            {/* Report Content - All existing report display code remains the same */}
+            {/* Report Content */}
             <div className="p-6">
               {/* Sales Report */}
               {reportData.type === 'sales' && (
@@ -853,7 +1011,7 @@ export default function ReportsPage() {
                 </div>
               )}
 
-              {/* Inventory Report */}
+              {/* Inventory Report - 🔥 FIXED */}
               {reportData.type === 'inventory' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -877,8 +1035,8 @@ export default function ReportsPage() {
                     </div>
                   </div>
 
-                  <h3 className="text-lg font-bold text-gray-800 mb-4">Stock by Branch</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                  <h3 className="text-lg font-bold text-gray-800 mb-4">{reportData.branch.charAt(0).toUpperCase() + reportData.branch.slice(1)} Branch Stock</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-1 gap-4 mb-6">
                     {Object.entries(reportData.summary.branchStock).map(([branch, data]) => (
                       <div key={branch} className="bg-purple-50 p-4 rounded-lg border border-purple-200">
                         <p className="text-sm text-gray-600 mb-1 capitalize">{branch} Branch</p>
@@ -886,13 +1044,13 @@ export default function ReportsPage() {
                           {data.quantity} units
                         </p>
                         <p className="text-sm text-gray-600">
-                          Value: {formatCurrency(data.value)}
+                          Value: {formatCurrency(data.value)} | Products: {data.products}
                         </p>
                       </div>
                     ))}
                   </div>
 
-                  <h3 className="text-lg font-bold text-gray-800 mb-4">Product List</h3>
+                  <h3 className="text-lg font-bold text-gray-800 mb-4">Product List ({reportData.details.length} items)</h3>
                   <div className="overflow-x-auto">
                     <table className="w-full">
                       <thead className="bg-gray-50">
@@ -900,21 +1058,22 @@ export default function ReportsPage() {
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Product Name</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Category</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Price</th>
-                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Total Stock</th>
+                          <th className="px-4 py-2 text-left text-xs font-medium text-gray-700 capitalize">{reportData.branch} Stock</th>
                           <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Stock Value</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {reportData.details.map((product) => {
-                          const totalStock = Object.values(product.stock || {}).reduce((sum, qty) => sum + qty, 0)
+                          const branchStockKey = `${reportData.branch}_stock`
+                          const branchStock = product.stock?.[branchStockKey] || 0
                           return (
                             <tr key={product._id}>
                               <td className="px-4 py-2 text-sm font-medium">{product.name}</td>
                               <td className="px-4 py-2 text-sm">{product.category}</td>
                               <td className="px-4 py-2 text-sm">{formatCurrency(product.price)}</td>
-                              <td className="px-4 py-2 text-sm font-bold">{totalStock}</td>
+                              <td className="px-4 py-2 text-sm font-bold">{branchStock}</td>
                               <td className="px-4 py-2 text-sm font-bold text-green-600">
-                                {formatCurrency(totalStock * product.price)}
+                                {formatCurrency(branchStock * product.price)}
                               </td>
                             </tr>
                           )
@@ -1051,7 +1210,7 @@ export default function ReportsPage() {
             <BarChart3 className="w-16 h-16 mx-auto text-gray-300 mb-4" />
             <p className="text-gray-500 text-lg font-medium mb-2">No Report Generated</p>
             <p className="text-gray-400 text-sm">
-              Select a report type above and click "Generate Report" to view data
+              Select a report type above and click "Generate Report" to view data for {currentBranch} branch
             </p>
           </div>
         )}

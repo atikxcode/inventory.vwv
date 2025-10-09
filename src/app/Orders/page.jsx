@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
+import { useBranch } from '@/contexts/BranchContext'
 import { 
   Package, 
   Search, 
@@ -25,21 +26,25 @@ import {
   ChevronRight,
   TrendingUp,
   AlertCircle,
-  Settings
+  Settings,
+  ChevronDown,
+  Check
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 export default function OrdersPage() {
+  const { selectedBranch, changeBranch } = useBranch()
   const [userInfo, setUserInfo] = useState(null)
   const [orders, setOrders] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [branchFilter, setBranchFilter] = useState('all')
   const [currentPage, setCurrentPage] = useState(1)
   const [pagination, setPagination] = useState(null)
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
+  const [availableBranches, setAvailableBranches] = useState([])
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
   const [stats, setStats] = useState({
     total: 0,
     pending: 0,
@@ -56,31 +61,69 @@ export default function OrdersPage() {
       const parsed = JSON.parse(storedUserInfo)
       setUserInfo(parsed)
     }
+    fetchBranches()
   }, [])
 
-  // Fetch orders when filters change
+  // Fetch orders when filters change or branch changes
   useEffect(() => {
-    if (userInfo) {
-      fetchOrders()
+    const currentBranch = selectedBranch || userInfo?.branch
+    if (userInfo && currentBranch) {
+      fetchOrders(currentBranch)
     }
-  }, [userInfo, currentPage, statusFilter, branchFilter, searchQuery])
+  }, [userInfo, selectedBranch, currentPage, statusFilter, searchQuery])
 
-  const fetchOrders = async () => {
+  const fetchBranches = async () => {
+    try {
+      const token = localStorage.getItem('auth-token')
+      const response = await fetch('/api/branches', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableBranches(data.branches || [])
+      }
+    } catch (error) {
+      console.error('Error fetching branches:', error)
+    }
+  }
+
+  const handleBranchChange = (branch) => {
+    changeBranch(branch)
+    setIsBranchDropdownOpen(false)
+    setCurrentPage(1)
+    
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Switched to ${branch.charAt(0).toUpperCase() + branch.slice(1)} Branch`,
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+    })
+  }
+
+  const fetchOrders = async (branch) => {
     try {
       setIsLoading(true)
       const token = localStorage.getItem('auth-token')
       
-      // Build query params
       const params = new URLSearchParams({
         page: currentPage,
         limit: 20,
         sortBy: 'createdAt',
-        sortOrder: 'desc'
+        sortOrder: 'desc',
+        branch: branch
       })
       
       if (statusFilter !== 'all') params.append('status', statusFilter)
-      if (branchFilter !== 'all') params.append('branch', branchFilter)
       if (searchQuery.trim()) params.append('orderId', searchQuery.trim())
+
+      console.log('🔍 Fetching orders for branch:', branch)
 
       const response = await fetch(`/api/orders?${params}`, {
         headers: {
@@ -91,6 +134,7 @@ export default function OrdersPage() {
 
       if (response.ok) {
         const data = await response.json()
+        console.log('✅ Fetched orders:', data.orders?.length)
         setOrders(data.orders || [])
         setPagination(data.pagination)
         calculateStats(data.orders || [])
@@ -174,7 +218,8 @@ export default function OrdersPage() {
           timer: 2000,
           showConfirmButton: false
         })
-        fetchOrders()
+        const currentBranch = selectedBranch || userInfo?.branch
+        fetchOrders(currentBranch)
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to update order')
@@ -222,7 +267,8 @@ export default function OrdersPage() {
           timer: 2000,
           showConfirmButton: false
         })
-        fetchOrders()
+        const currentBranch = selectedBranch || userInfo?.branch
+        fetchOrders(currentBranch)
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to cancel order')
@@ -268,19 +314,42 @@ export default function OrdersPage() {
     return `৳${parseFloat(amount).toFixed(2)}`
   }
 
-  // 🆕 NEW: Format option key to readable text
   const formatOptionKey = (key) => {
     return key
-      .replace(/([A-Z])/g, ' $1') // Add space before capital letters
-      .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+      .replace(/([A-Z])/g, ' $1')
+      .replace(/^./, str => str.toUpperCase())
       .trim()
   }
 
-  // 🆕 NEW: Check if item has selected options
   const hasSelectedOptions = (item) => {
     return item.selectedOptions && 
            typeof item.selectedOptions === 'object' && 
            Object.keys(item.selectedOptions).length > 0
+  }
+
+  if (userInfo?.role === 'admin' && !selectedBranch) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center bg-white p-8 rounded-xl shadow-lg max-w-md">
+            <Building className="w-16 h-16 mx-auto text-purple-600 mb-4" />
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Select a Branch</h2>
+            <p className="text-gray-600 mb-6">Please select a branch from the sidebar to view orders</p>
+            <div className="space-y-2">
+              {availableBranches.map((branch) => (
+                <button
+                  key={branch}
+                  onClick={() => handleBranchChange(branch)}
+                  className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors capitalize font-medium"
+                >
+                  {branch}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
   }
 
   if (isLoading && !orders.length) {
@@ -289,30 +358,82 @@ export default function OrdersPage() {
         <div className="p-8 flex items-center justify-center min-h-screen">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading orders...</p>
+            <p className="text-gray-600">Loading orders for {selectedBranch || userInfo?.branch}...</p>
           </div>
         </div>
       </DashboardLayout>
     )
   }
 
+  const currentBranch = selectedBranch || userInfo?.branch
+
   return (
     <DashboardLayout>
       <div className="p-8">
         {/* Header */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-            <ShoppingBag className="w-8 h-8 text-purple-600" />
-            Orders Management
-          </h1>
-          <p className="text-gray-500 mt-1">
-            Track and manage customer orders
-            {userInfo?.branch && (
-              <span className="ml-2 text-purple-600 font-medium">
-                • {userInfo.branch.charAt(0).toUpperCase() + userInfo.branch.slice(1)} Branch
-              </span>
-            )}
-          </p>
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
+                <ShoppingBag className="w-8 h-8 text-purple-600" />
+                Orders Management
+              </h1>
+              <div className="flex items-center gap-4 mt-2">
+                <p className="text-gray-500">Track and manage customer orders</p>
+                
+                {/* Admin Branch Selector */}
+                {userInfo?.role === 'admin' && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      <Building className="w-4 h-4" />
+                      <span className="capitalize">{currentBranch}</span>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isBranchDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsBranchDropdownOpen(false)}
+                        />
+                        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-purple-200 z-50 min-w-[200px]">
+                          <div className="py-1">
+                            {availableBranches.map((branch) => (
+                              <button
+                                key={branch}
+                                onClick={() => handleBranchChange(branch)}
+                                className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${
+                                  selectedBranch === branch ? 'bg-purple-100' : ''
+                                }`}
+                              >
+                                <span className="text-sm font-medium text-gray-700 capitalize">
+                                  {branch}
+                                </span>
+                                {selectedBranch === branch && (
+                                  <Check className="w-4 h-4 text-purple-600" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* POS Branch Display */}
+                {userInfo?.role === 'pos' && userInfo?.branch && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium capitalize flex items-center gap-1">
+                    <Building className="w-4 h-4" />
+                    {userInfo.branch} Branch
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Stats Cards */}
@@ -380,7 +501,7 @@ export default function OrdersPage() {
 
         {/* Filters */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Search */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -424,42 +545,15 @@ export default function OrdersPage() {
                 <option value="refunded">Refunded</option>
               </select>
             </div>
-
-            {/* Branch Filter - Only for admin/manager */}
-            {['admin', 'manager'].includes(userInfo?.role) && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Filter by Branch
-                </label>
-                <select
-                  value={branchFilter}
-                  onChange={(e) => {
-                    setBranchFilter(e.target.value)
-                    setCurrentPage(1)
-                  }}
-                  className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-                >
-                  <option value="all">All Branches</option>
-                  <option value="main">Main</option>
-                  <option value="mirpur">Mirpur</option>
-                  <option value="bashundhara">Bashundhara</option>
-                </select>
-              </div>
-            )}
           </div>
 
           {/* Active Filters Summary */}
-          {(statusFilter !== 'all' || branchFilter !== 'all' || searchQuery) && (
+          {(statusFilter !== 'all' || searchQuery) && (
             <div className="mt-4 flex items-center gap-2 flex-wrap">
               <span className="text-sm text-gray-600">Active filters:</span>
               {statusFilter !== 'all' && (
                 <span className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-medium">
                   Status: {statusFilter}
-                </span>
-              )}
-              {branchFilter !== 'all' && (
-                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
-                  Branch: {branchFilter}
                 </span>
               )}
               {searchQuery && (
@@ -470,7 +564,6 @@ export default function OrdersPage() {
               <button
                 onClick={() => {
                   setStatusFilter('all')
-                  setBranchFilter('all')
                   setSearchQuery('')
                   setCurrentPage(1)
                 }}
@@ -489,9 +582,9 @@ export default function OrdersPage() {
               <Package className="w-16 h-16 mx-auto text-gray-300 mb-4" />
               <p className="text-gray-500 text-lg font-medium">No orders found</p>
               <p className="text-gray-400 text-sm mt-2">
-                {searchQuery || statusFilter !== 'all' || branchFilter !== 'all'
+                {searchQuery || statusFilter !== 'all'
                   ? 'Try adjusting your filters'
-                  : 'Orders will appear here once customers place them'}
+                  : `No orders for ${currentBranch} branch`}
               </p>
             </div>
           ) : (
@@ -591,7 +684,6 @@ export default function OrdersPage() {
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            {/* View Details */}
                             <button
                               onClick={() => viewOrderDetails(order)}
                               className="text-purple-600 hover:text-purple-800 transition-colors"
@@ -600,7 +692,6 @@ export default function OrdersPage() {
                               <Eye className="w-5 h-5" />
                             </button>
 
-                            {/* Status Update Dropdown - For POS/Moderator/Admin */}
                             {['admin', 'manager', 'moderator', 'pos'].includes(userInfo?.role) && 
                              order.status !== 'cancelled' && 
                              order.status !== 'delivered' && (
@@ -832,7 +923,6 @@ export default function OrdersPage() {
                             <p className="text-xs text-gray-400 mt-1">Brand: {item.product.brand}</p>
                           )}
                           
-                          {/* 🆕 NEW: Display Selected Options */}
                           {hasSelectedOptions(item) && (
                             <div className="mt-3 pt-3 border-t border-gray-200">
                               <div className="flex items-center gap-2 mb-2">
@@ -948,7 +1038,6 @@ export default function OrdersPage() {
                   <button
                     onClick={() => {
                       setShowDetailsModal(false)
-                      // Open status update
                       const nextStatus = 
                         selectedOrder.status === 'pending' ? 'confirmed' :
                         selectedOrder.status === 'confirmed' ? 'processing' :

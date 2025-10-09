@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
+import { useBranch } from '@/contexts/BranchContext'
 import { 
   DollarSign,
   Plus,
@@ -21,11 +22,13 @@ import {
   ChevronRight,
   Download,
   X,
-  Check
+  Check,
+  ChevronDown
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 
 export default function ExpensesPage() {
+  const { selectedBranch, changeBranch } = useBranch()
   const [userInfo, setUserInfo] = useState(null)
   const [expenses, setExpenses] = useState([])
   const [categories, setCategories] = useState([])
@@ -39,6 +42,8 @@ export default function ExpensesPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showDetailsModal, setShowDetailsModal] = useState(false)
   const [selectedExpense, setSelectedExpense] = useState(null)
+  const [availableBranches, setAvailableBranches] = useState([])
+  const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
 
   // Create expense form state
   const [formData, setFormData] = useState({
@@ -95,15 +100,52 @@ export default function ExpensesPage() {
       const parsed = JSON.parse(storedUserInfo)
       setUserInfo(parsed)
     }
+    fetchBranches()
   }, [])
 
-  // Fetch expenses and categories
+  // Fetch expenses when filters change or branch changes
   useEffect(() => {
-    if (userInfo) {
-      fetchExpenses()
+    const currentBranch = selectedBranch || userInfo?.branch
+    if (userInfo && currentBranch) {
+      fetchExpenses(currentBranch)
       fetchCategories()
     }
-  }, [userInfo, currentPage, categoryFilter, dateRange])
+  }, [userInfo, selectedBranch, currentPage, categoryFilter, dateRange])
+
+  const fetchBranches = async () => {
+    try {
+      const token = localStorage.getItem('auth-token')
+      const response = await fetch('/api/branches', {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setAvailableBranches(data.branches || [])
+      }
+    } catch (error) {
+      console.error('Error fetching branches:', error)
+    }
+  }
+
+  const handleBranchChange = (branch) => {
+    changeBranch(branch)
+    setIsBranchDropdownOpen(false)
+    setCurrentPage(1)
+    
+    Swal.fire({
+      toast: true,
+      position: 'top-end',
+      icon: 'success',
+      title: `Switched to ${branch.charAt(0).toUpperCase() + branch.slice(1)} Branch`,
+      showConfirmButton: false,
+      timer: 2000,
+      timerProgressBar: true,
+    })
+  }
 
   const fetchCategories = async () => {
     try {
@@ -124,7 +166,7 @@ export default function ExpensesPage() {
     }
   }
 
-  const fetchExpenses = async () => {
+  const fetchExpenses = async (branch) => {
     try {
       setIsLoading(true)
       const token = localStorage.getItem('auth-token')
@@ -133,12 +175,15 @@ export default function ExpensesPage() {
         page: currentPage,
         limit: 20,
         sortBy: 'expenseDate',
-        sortOrder: 'desc'
+        sortOrder: 'desc',
+        branch: branch
       })
       
       if (categoryFilter !== 'all') params.append('category', categoryFilter)
       if (dateRange.start) params.append('startDate', dateRange.start)
       if (dateRange.end) params.append('endDate', dateRange.end)
+
+      console.log('🔍 Fetching expenses for branch:', branch)
 
       const response = await fetch(`/api/expenses?${params}`, {
         headers: {
@@ -149,6 +194,7 @@ export default function ExpensesPage() {
 
       if (response.ok) {
         const data = await response.json()
+        console.log('✅ Fetched expenses:', data.expenses?.length)
         setExpenses(data.expenses || [])
         setPagination(data.pagination)
         setSummary(data.summary)
@@ -180,7 +226,6 @@ export default function ExpensesPage() {
       return
     }
 
-    // Use custom category if "custom" is selected
     const finalCategory = formData.category === 'custom' 
       ? formData.customCategory 
       : formData.category
@@ -224,8 +269,9 @@ export default function ExpensesPage() {
         
         setShowCreateModal(false)
         resetForm()
-        fetchExpenses()
-        fetchCategories() // Refresh categories if custom was added
+        const currentBranch = selectedBranch || userInfo?.branch
+        fetchExpenses(currentBranch)
+        fetchCategories()
       } else {
         const errorData = await response.json()
         throw new Error(errorData.error || 'Failed to create expense')
@@ -275,7 +321,8 @@ export default function ExpensesPage() {
           timer: 2000,
           showConfirmButton: false
         })
-        fetchExpenses()
+        const currentBranch = selectedBranch || userInfo?.branch
+        fetchExpenses(currentBranch)
       } else {
         throw new Error('Failed to delete expense')
       }
@@ -316,45 +363,121 @@ export default function ExpensesPage() {
     return found ? found.icon : '📋'
   }
 
-  if (isLoading && !expenses.length) {
+  if (userInfo?.role === 'admin' && !selectedBranch) {
     return (
       <DashboardLayout>
-        <div className="p-8 flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-            <p className="text-gray-600">Loading expenses...</p>
+        <div className="flex items-center justify-center min-h-screen">
+          <div className="text-center bg-white p-8 rounded-xl shadow-lg max-w-md">
+            <Building className="w-16 h-16 mx-auto text-purple-600 mb-4" />
+            <h2 className="text-2xl font-bold text-gray-800 mb-2">Select a Branch</h2>
+            <p className="text-gray-600 mb-6">Please select a branch from the sidebar to view expenses</p>
+            <div className="space-y-2">
+              {availableBranches.map((branch) => (
+                <button
+                  key={branch}
+                  onClick={() => handleBranchChange(branch)}
+                  className="w-full px-4 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors capitalize font-medium"
+                >
+                  {branch}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </DashboardLayout>
     )
   }
 
+  if (isLoading && !expenses.length) {
+    return (
+      <DashboardLayout>
+        <div className="p-8 flex items-center justify-center min-h-screen">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading expenses for {selectedBranch || userInfo?.branch}...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const currentBranch = selectedBranch || userInfo?.branch
+
   return (
     <DashboardLayout>
       <div className="p-8">
         {/* Header */}
-        <div className="mb-8 flex justify-between items-center">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
-              <DollarSign className="w-8 h-8 text-purple-600" />
-              Expense Management
-            </h1>
-            <p className="text-gray-500 mt-1">
-              Track and manage daily expenses
-              {userInfo?.branch && (
-                <span className="ml-2 text-purple-600 font-medium">
-                  • {userInfo.branch.charAt(0).toUpperCase() + userInfo.branch.slice(1)} Branch
-                </span>
-              )}
-            </p>
+        <div className="mb-8">
+          <div className="flex justify-between items-start">
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold text-gray-800 flex items-center gap-3">
+                <DollarSign className="w-8 h-8 text-purple-600" />
+                Expense Management
+              </h1>
+              <div className="flex items-center gap-4 mt-2">
+                <p className="text-gray-500">Track and manage daily expenses</p>
+                
+                {/* Admin Branch Selector */}
+                {userInfo?.role === 'admin' && (
+                  <div className="relative">
+                    <button
+                      onClick={() => setIsBranchDropdownOpen(!isBranchDropdownOpen)}
+                      className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors text-sm font-medium"
+                    >
+                      <Building className="w-4 h-4" />
+                      <span className="capitalize">{currentBranch}</span>
+                      <ChevronDown className={`w-4 h-4 transition-transform ${isBranchDropdownOpen ? 'rotate-180' : ''}`} />
+                    </button>
+
+                    {isBranchDropdownOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-40" 
+                          onClick={() => setIsBranchDropdownOpen(false)}
+                        />
+                        <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-purple-200 z-50 min-w-[200px]">
+                          <div className="py-1">
+                            {availableBranches.map((branch) => (
+                              <button
+                                key={branch}
+                                onClick={() => handleBranchChange(branch)}
+                                className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${
+                                  selectedBranch === branch ? 'bg-purple-100' : ''
+                                }`}
+                              >
+                                <span className="text-sm font-medium text-gray-700 capitalize">
+                                  {branch}
+                                </span>
+                                {selectedBranch === branch && (
+                                  <Check className="w-4 h-4 text-purple-600" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* POS Branch Display */}
+                {userInfo?.role === 'pos' && userInfo?.branch && (
+                  <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium capitalize flex items-center gap-1">
+                    <Building className="w-4 h-4" />
+                    {userInfo.branch} Branch
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors shadow-md hover:shadow-lg flex items-center gap-2"
+            >
+              <Plus className="w-5 h-5" />
+              Add Expense
+            </button>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="bg-purple-600 hover:bg-purple-700 text-white px-6 py-3 rounded-lg font-medium transition-colors shadow-md hover:shadow-lg flex items-center gap-2"
-          >
-            <Plus className="w-5 h-5" />
-            Add Expense
-          </button>
         </div>
 
         {/* Summary Cards */}
@@ -464,7 +587,9 @@ export default function ExpensesPage() {
               <Receipt className="w-16 h-16 mx-auto text-gray-300 mb-4" />
               <p className="text-gray-500 text-lg font-medium">No expenses recorded</p>
               <p className="text-gray-400 text-sm mt-2">
-                Click "Add Expense" to record your first expense
+                {categoryFilter !== 'all' || dateRange.start || dateRange.end
+                  ? 'Try adjusting your filters'
+                  : `No expenses for ${currentBranch} branch`}
               </p>
             </div>
           ) : (
