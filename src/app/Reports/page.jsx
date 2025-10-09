@@ -101,6 +101,17 @@ export default function ReportsPage() {
     fetchBranches()
   }, [])
 
+  // 🔥 NEW: Auto-regenerate report when branch changes
+  useEffect(() => {
+    if (reportData && selectedReport && userInfo) {
+      const currentBranch = selectedBranch || userInfo?.branch
+      console.log('🔄 Branch changed, regenerating report for:', currentBranch)
+      
+      // Regenerate the current report with new branch
+      generateReport(selectedReport)
+    }
+  }, [selectedBranch])
+
   const fetchBranches = async () => {
     try {
       const token = localStorage.getItem('auth-token')
@@ -288,7 +299,6 @@ export default function ReportsPage() {
     }
   }
 
-  // 🔥 FIXED: Inventory Report now filters by selected branch only
   const generateInventoryReport = async (token, branch) => {
     const params = new URLSearchParams({
       limit: 1000
@@ -307,21 +317,18 @@ export default function ReportsPage() {
       const data = await response.json()
       const products = data.products || []
       
-      // 🔥 FIX: Calculate stats for ONLY the selected branch
       const branchStockKey = `${branch}_stock`
       let totalProducts = 0
       let totalStockValue = 0
       let lowStockItems = 0
       const branchStock = { [branch]: { quantity: 0, value: 0, products: 0 } }
 
-      // 🔥 FIX: Filter products that have stock in this branch
       const branchProducts = []
 
       products.forEach(product => {
         if (product.stock && product.stock[branchStockKey] !== undefined) {
           const qty = product.stock[branchStockKey] || 0
           
-          // Only include products with stock data for this branch
           branchProducts.push(product)
           totalProducts++
           
@@ -351,7 +358,7 @@ export default function ReportsPage() {
           lowStockItems,
           branchStock
         },
-        details: branchProducts, // 🔥 FIX: Only show products for this branch
+        details: branchProducts,
         dateRange,
         branch
       })
@@ -1011,7 +1018,7 @@ export default function ReportsPage() {
                 </div>
               )}
 
-              {/* Inventory Report - 🔥 FIXED */}
+              {/* Inventory Report */}
               {reportData.type === 'inventory' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
