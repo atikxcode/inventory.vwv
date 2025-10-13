@@ -102,7 +102,7 @@ async function getUserInfo(req) {
 // 🔥 UPDATED: Default branches
 const DEFAULT_BRANCHES = ['bashundhara', 'mirpur']
 
-// 🔥 UPDATED: GET method with POS user support
+// 🔥 FIXED: GET method with explicit admin branch handling
 export async function GET(req) {
   const ip = getUserIP(req)
   logRequest(req, 'GET')
@@ -131,11 +131,11 @@ export async function GET(req) {
       .collection('settings')
       .findOne({ type: 'branches' })
 
-    let branches = DEFAULT_BRANCHES
+    let allBranches = DEFAULT_BRANCHES
 
-    if (branchDoc && branchDoc.branches && Array.isArray(branchDoc.branches)) {
-      branches = branchDoc.branches
-      console.log('GET: Branches found in database:', branches)
+    if (branchDoc && branchDoc.branches && Array.isArray(branchDoc.branches) && branchDoc.branches.length > 0) {
+      allBranches = branchDoc.branches
+      console.log('GET: Branches found in database:', allBranches)
     } else {
       // If no branches in DB, create default ones
       console.log('GET: No branches found, creating defaults...')
@@ -149,14 +149,31 @@ export async function GET(req) {
 
       await db.collection('settings').insertOne(newBranchDoc)
       console.log('GET: Default branches created successfully ✓')
-      branches = DEFAULT_BRANCHES
+      allBranches = DEFAULT_BRANCHES
     }
 
-    // 🔥 NEW: Filter branches for POS users (only return their assigned branch)
-    if (userInfo.role === 'pos' && userInfo.branch) {
+    // 🔥 FIXED: Role-based branch filtering with explicit admin handling
+    let branches = allBranches
+
+    if (userInfo.role === 'admin') {
+      // 🔥 CRITICAL: Admin users see ALL branches
+      console.log('GET: Admin user detected - returning ALL branches:', allBranches)
+      branches = allBranches
+    } else if (userInfo.role === 'pos' && userInfo.branch) {
+      // 🔥 POS users see only their assigned branch
       console.log('GET: POS user detected, filtering to assigned branch:', userInfo.branch)
       branches = [userInfo.branch]
+    } else if (userInfo.role === 'moderator' && userInfo.branch) {
+      // 🔥 Moderator users see only their assigned branch
+      console.log('GET: Moderator user detected, filtering to assigned branch:', userInfo.branch)
+      branches = [userInfo.branch]
+    } else {
+      // 🔥 Public/other users see all branches (or you can restrict)
+      console.log('GET: Public/other user - returning all branches')
+      branches = allBranches
     }
+
+    console.log('GET: Final branches being returned:', branches)
 
     return NextResponse.json(
       { 
@@ -167,7 +184,10 @@ export async function GET(req) {
       {
         headers: { 
           'Content-Type': 'application/json',
-          'Cache-Control': userInfo.role === 'pos' ? 'private, max-age=3600' : 'public, max-age=1800'
+          // 🔥 FIXED: Disable caching completely for fresh data on every request
+          'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0',
+          'Pragma': 'no-cache',
+          'Expires': '0'
         },
       }
     )

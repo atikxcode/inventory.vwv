@@ -19,11 +19,14 @@ export default function BranchSelector() {
     try {
       const token = localStorage.getItem('auth-token')
       
-      // 🔥 UPDATED: Use your existing branches API
-      const response = await fetch('/api/branches', {
+      // 🔥 FIXED: Add cache busting timestamp and no-cache headers
+      const timestamp = Date.now()
+      const response = await fetch(`/api/branches?t=${timestamp}`, {
         headers: {
           'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache'
         }
       })
 

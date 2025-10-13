@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation'
 import Swal from 'sweetalert2'
 import { Store, ShieldCheck } from 'lucide-react'
 
-export default function POSLoginPage() {
+export default function InventoryLoginPage() {
   const { user, signIn, handleGoogleSignIn, handleAppleSignIn, logOut } = useContext(AuthContext)
   const router = useRouter()
 
@@ -25,22 +25,52 @@ export default function POSLoginPage() {
 
   // Clear auth data on page load - force re-login
   useEffect(() => {
-    localStorage.removeItem('auth-token')
-    localStorage.removeItem('user-info')
-    sessionStorage.clear()
-    
-    if (user) {
-      logOut().catch(err => console.log('Logout error:', err))
+    // 🔥 ENHANCED: Clear everything including IndexedDB
+    const clearAllAuth = async () => {
+      localStorage.removeItem('auth-token')
+      localStorage.removeItem('user-info')
+      sessionStorage.clear()
+      
+      // 🔥 NEW: Clear IndexedDB (Firebase cache)
+      try {
+        const dbs = await indexedDB.databases()
+        for (const db of dbs) {
+          indexedDB.deleteDatabase(db.name)
+          console.log('🗑️ Deleted IndexedDB:', db.name)
+        }
+      } catch (e) {
+        console.log('⚠️ Could not clear IndexedDB:', e)
+      }
+      
+      if (user) {
+        await logOut().catch(err => console.log('Logout error:', err))
+      }
+      
+      console.log('✅ Auth cleared - login required')
     }
     
-    console.log('✅ Auth cleared - login required')
+    clearAllAuth()
   }, [])
 
-  // Function to get Firebase token and store it
+  // 🔥 UPDATED: Function to get Firebase token and store it with forced refresh
   const storeFirebaseToken = async (firebaseUser) => {
     try {
       console.log('🔍 Getting Firebase token for:', firebaseUser.email)
-      const token = await firebaseUser.getIdToken(true)
+      
+      // 🔥 CRITICAL: Force refresh to get completely NEW token
+      const token = await firebaseUser.getIdToken(true) // true = force refresh
+      
+      // 🔥 NEW: Decode and log token details for debugging
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        console.log('🔍 Token details:')
+        console.log('  - Issued at:', new Date(payload.iat * 1000).toLocaleString())
+        console.log('  - Expires at:', new Date(payload.exp * 1000).toLocaleString())
+        console.log('  - Email:', payload.email)
+      } catch (e) {
+        console.log('⚠️ Could not decode token')
+      }
+      
       localStorage.setItem('auth-token', token)
       console.log('✅ Token stored successfully')
       return token
@@ -93,7 +123,10 @@ export default function POSLoginPage() {
       
       if (data.exists && data.user) {
         localStorage.setItem('user-info', JSON.stringify(data.user))
-        console.log('✅ User info stored in localStorage')
+        console.log('✅ User info stored in localStorage:', {
+          role: data.user.role,
+          branch: data.user.branch
+        })
         return data.user
       }
       
@@ -127,6 +160,11 @@ export default function POSLoginPage() {
       // 🔥 FIXED: Check if user is admin first - admins bypass all checks
       if (dbUser.role === 'admin') {
         console.log('✅ Admin access granted - bypassing branch check')
+        console.log('   Admin details:', {
+          email: dbUser.email,
+          role: dbUser.role,
+          branch: dbUser.branch
+        })
         return dbUser
       }
 
@@ -389,7 +427,7 @@ export default function POSLoginPage() {
             <h1 className="text-3xl font-bold text-gray-900">VWV INVENTORY SYSTEM</h1>
             <p className="text-gray-600 flex items-center justify-center gap-2">
               <ShieldCheck size={18} className="text-purple-600" />
-              inventory Management Login
+              Inventory Management Login
             </p>
           </div>
 
