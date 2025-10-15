@@ -20,7 +20,9 @@ import {
   Building,
   BarChart3,
   ChevronDown,
-  Check
+  Check,
+  Smartphone,
+  CreditCard
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 import jsPDF from 'jspdf'
@@ -38,6 +40,10 @@ export default function ReportsPage() {
   const [reportData, setReportData] = useState(null)
   const [availableBranches, setAvailableBranches] = useState([])
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
+  const [showSalesSubMenu, setShowSalesSubMenu] = useState(false)
+  const [showMobileBankingSubMenu, setShowMobileBankingSubMenu] = useState(false)
+  const [showCardSubMenu, setShowCardSubMenu] = useState(false)
+  const [selectedSalesCategory, setSelectedSalesCategory] = useState(null)
 
   const reportTypes = [
     {
@@ -92,6 +98,101 @@ export default function ReportsPage() {
     }
   ]
 
+  const salesCategories = [
+    {
+      id: 'total_sell',
+      name: 'Total Sell',
+      description: 'All sales transactions',
+      icon: ShoppingCart,
+      color: 'from-green-500 to-emerald-600'
+    },
+    {
+      id: 'cash_sell',
+      name: 'Cash Sell',
+      description: 'Cash payment sales only',
+      icon: DollarSign,
+      color: 'from-blue-500 to-cyan-600'
+    },
+    {
+      id: 'mobile_banking',
+      name: 'Mobile Banking',
+      description: 'Mobile banking payment sales',
+      icon: Smartphone,
+      color: 'from-pink-500 to-rose-600',
+      hasSubMenu: true
+    },
+    {
+      id: 'card_sell',
+      name: 'Card Sell',
+      description: 'Card payment sales',
+      icon: CreditCard,
+      color: 'from-purple-500 to-violet-600',
+      hasSubMenu: true
+    }
+  ]
+
+  const mobileBankingOptions = [
+    {
+      id: 'bkash',
+      name: 'Bkash',
+      description: 'Bkash payment sales',
+      icon: Smartphone,
+      color: 'from-pink-500 to-rose-600'
+    },
+    {
+      id: 'nagad',
+      name: 'Nagad',
+      description: 'Nagad payment sales',
+      icon: Smartphone,
+      color: 'from-orange-500 to-amber-600'
+    },
+    {
+      id: 'rocket',
+      name: 'Rocket',
+      description: 'Rocket payment sales',
+      icon: Smartphone,
+      color: 'from-purple-500 to-violet-600'
+    },
+    {
+      id: 'all',
+      name: 'All Type',
+      description: 'All mobile banking sales',
+      icon: Smartphone,
+      color: 'from-blue-500 to-cyan-600'
+    }
+  ]
+
+  const cardOptions = [
+    {
+      id: 'credit_card',
+      name: 'Credit Card',
+      description: 'Credit card payment sales',
+      icon: CreditCard,
+      color: 'from-blue-500 to-indigo-600'
+    },
+    {
+      id: 'debit_card',
+      name: 'Debit Card',
+      description: 'Debit card payment sales',
+      icon: CreditCard,
+      color: 'from-green-500 to-emerald-600'
+    },
+    {
+      id: 'american_express',
+      name: 'American Express',
+      description: 'American Express card sales',
+      icon: CreditCard,
+      color: 'from-slate-500 to-gray-600'
+    },
+    {
+      id: 'all',
+      name: 'All Type',
+      description: 'All card payment sales',
+      icon: CreditCard,
+      color: 'from-purple-500 to-violet-600'
+    }
+  ]
+
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('user-info')
     if (storedUserInfo) {
@@ -101,14 +202,16 @@ export default function ReportsPage() {
     fetchBranches()
   }, [])
 
-  // 🔥 NEW: Auto-regenerate report when branch changes
   useEffect(() => {
     if (reportData && selectedReport && userInfo) {
       const currentBranch = selectedBranch || userInfo?.branch
       console.log('🔄 Branch changed, regenerating report for:', currentBranch)
       
-      // Regenerate the current report with new branch
-      generateReport(selectedReport)
+      if (selectedReport === 'sales' && selectedSalesCategory) {
+        handleSalesReportGeneration(selectedSalesCategory)
+      } else {
+        generateReport(selectedReport)
+      }
     }
   }, [selectedBranch])
 
@@ -158,8 +261,9 @@ export default function ReportsPage() {
 
       switch (reportType) {
         case 'sales':
-          await generateSalesReport(token, currentBranch)
-          break
+          setShowSalesSubMenu(true)
+          setIsLoading(false)
+          return
         case 'expenses':
           await generateExpensesReport(token, currentBranch)
           break
@@ -197,7 +301,120 @@ export default function ReportsPage() {
     }
   }
 
-  const generateSalesReport = async (token, branch) => {
+  const handleSalesReportGeneration = async (category) => {
+    if (category === 'mobile_banking') {
+      setShowMobileBankingSubMenu(true)
+      return
+    }
+    if (category === 'card_sell') {
+      setShowCardSubMenu(true)
+      return
+    }
+
+    setIsLoading(true)
+    setSelectedReport('sales')
+    setSelectedSalesCategory(category)
+    setShowSalesSubMenu(false)
+    
+    try {
+      const token = localStorage.getItem('auth-token')
+      const currentBranch = selectedBranch || userInfo?.branch
+
+      console.log('🔥 Generating sales report for branch:', currentBranch, 'Category:', category)
+      await generateSalesReport(token, currentBranch, category)
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Report Generated!',
+        text: 'Your report is ready to view or download',
+        confirmButtonColor: '#7c3aed',
+        timer: 2000,
+        showConfirmButton: false
+      })
+    } catch (error) {
+      console.error('Report generation error:', error)
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Failed to generate report. Please try again.',
+        confirmButtonColor: '#7c3aed'
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleMobileBankingSelection = async (method) => {
+    setIsLoading(true)
+    setSelectedReport('sales')
+    setSelectedSalesCategory(`mobile_banking_${method}`)
+    setShowMobileBankingSubMenu(false)
+    setShowSalesSubMenu(false)
+    
+    try {
+      const token = localStorage.getItem('auth-token')
+      const currentBranch = selectedBranch || userInfo?.branch
+
+      console.log('🔥 Generating mobile banking sales report:', method)
+      await generateSalesReport(token, currentBranch, 'mobile_banking', method)
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Report Generated!',
+        text: 'Your mobile banking report is ready',
+        confirmButtonColor: '#7c3aed',
+        timer: 2000,
+        showConfirmButton: false
+      })
+    } catch (error) {
+      console.error('Report generation error:', error)
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Failed to generate report. Please try again.',
+        confirmButtonColor: '#7c3aed'
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const handleCardSelection = async (method) => {
+    setIsLoading(true)
+    setSelectedReport('sales')
+    setSelectedSalesCategory(`card_${method}`)
+    setShowCardSubMenu(false)
+    setShowSalesSubMenu(false)
+    
+    try {
+      const token = localStorage.getItem('auth-token')
+      const currentBranch = selectedBranch || userInfo?.branch
+
+      console.log('🔥 Generating card sales report:', method)
+      await generateSalesReport(token, currentBranch, 'card', method)
+
+      Swal.fire({
+        icon: 'success',
+        title: 'Report Generated!',
+        text: 'Your card sales report is ready',
+        confirmButtonColor: '#7c3aed',
+        timer: 2000,
+        showConfirmButton: false
+      })
+    } catch (error) {
+      console.error('Report generation error:', error)
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Failed to generate report. Please try again.',
+        confirmButtonColor: '#7c3aed'
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
+
+  const generateSalesReport = async (token, branch, category = 'total_sell', subMethod = null) => {
     const params = new URLSearchParams({
       startDate: dateRange.start,
       endDate: dateRange.end,
@@ -205,7 +422,14 @@ export default function ReportsPage() {
       branch: branch
     })
 
-    console.log('🔍 Generating sales report for branch:', branch)
+    // 🔥 FIXED: Send proper API params based on category and subMethod
+    if (category === 'mobile_banking' && subMethod) {
+      params.append('mobileBankingMethod', subMethod)
+    } else if (category === 'card' && subMethod) {
+      params.append('cardMethod', subMethod)
+    }
+
+    console.log('🔍 API Request:', `/api/sales?${params.toString()}`)
 
     const response = await fetch(`/api/sales?${params}`, {
       headers: {
@@ -216,7 +440,28 @@ export default function ReportsPage() {
 
     if (response.ok) {
       const data = await response.json()
-      const sales = data.sales || []
+      let sales = data.sales || []
+      
+      console.log('✅ API Response: Received', sales.length, 'sales')
+      console.log('🔍 Category:', category, 'SubMethod:', subMethod)
+      
+      // 🔥 CRITICAL FIX: DO NOT filter if subMethod is provided (backend already filtered)
+      // ONLY filter on frontend for general categories without subMethod
+      if (!subMethod) {
+        if (category === 'cash_sell') {
+          sales = sales.filter(sale => sale.paymentType?.toLowerCase() === 'cash')
+          console.log('✅ Frontend filter: Cash sales =', sales.length)
+        } else if (category === 'card_sell') {
+          sales = sales.filter(sale => sale.paymentType?.toLowerCase() === 'card')
+          console.log('✅ Frontend filter: Card sales =', sales.length)
+        } else if (category === 'mobile_banking') {
+          sales = sales.filter(sale => sale.paymentType?.toLowerCase() === 'mobile_banking')
+          console.log('✅ Frontend filter: Mobile banking sales =', sales.length)
+        }
+      } else {
+        // Backend already filtered for specific method (rocket, credit_card, bkash, etc.)
+        console.log('✅ Using backend-filtered data:', sales.length, 'sales for', subMethod)
+      }
       
       const totalRevenue = sales.reduce((sum, sale) => sum + (sale.adjustedAmount || sale.totalAmount || 0), 0)
       const totalDiscount = sales.reduce((sum, sale) => sum + (sale.discount || 0), 0)
@@ -231,6 +476,8 @@ export default function ReportsPage() {
 
       setReportData({
         type: 'sales',
+        category: subMethod ? `${category}_${subMethod}` : category,
+        subMethod: subMethod,
         summary: {
           totalRevenue,
           totalDiscount,
@@ -242,6 +489,29 @@ export default function ReportsPage() {
         dateRange,
         branch
       })
+    } else {
+      const errorData = await response.json()
+      console.error('❌ API Error:', errorData)
+      throw new Error(errorData.error || 'Failed to fetch sales data')
+    }
+  }
+
+  const getPaymentMethodName = (sale, subMethod) => {
+    if (!sale.payment?.methods || sale.payment.methods.length === 0) {
+      return sale.paymentType || 'Unknown'
+    }
+
+    if (subMethod && subMethod !== 'all') {
+      const method = sale.payment.methods.find(m => m.id === subMethod)
+      if (method) {
+        return method.name || formatCategory(subMethod)
+      }
+    }
+
+    if (sale.payment.methods.length === 1) {
+      return sale.payment.methods[0].name || formatCategory(sale.payment.methods[0].id)
+    } else {
+      return sale.payment.methods.map(m => m.name || formatCategory(m.id)).join(', ')
     }
   }
 
@@ -486,12 +756,13 @@ export default function ReportsPage() {
       const canvas = await html2canvas(element, {
         scale: 2,
         useCORS: true,
-        allowTaint: true,
+        allowTaint: false,
         backgroundColor: '#ffffff',
-        logging: false
+        logging: false,
+        imageTimeout: 0
       })
 
-      const imgData = canvas.toDataURL('image/png', 1.0)
+      const imgData = canvas.toDataURL('image/jpeg', 0.95)
       
       const pdf = new jsPDF('p', 'mm', 'a4')
       const pdfWidth = pdf.internal.pageSize.getWidth()
@@ -506,17 +777,18 @@ export default function ReportsPage() {
       let heightLeft = scaledHeight
       let position = imgY
 
-      pdf.addImage(imgData, 'PNG', imgX, position, imgWidth * ratio, scaledHeight)
+      pdf.addImage(imgData, 'JPEG', imgX, position, imgWidth * ratio, scaledHeight)
       heightLeft -= (pageHeight - imgY)
 
       while (heightLeft > 0) {
         position = heightLeft - scaledHeight + imgY
         pdf.addPage()
-        pdf.addImage(imgData, 'PNG', imgX, position, imgWidth * ratio, scaledHeight)
+        pdf.addImage(imgData, 'JPEG', imgX, position, imgWidth * ratio, scaledHeight)
         heightLeft -= pageHeight
       }
       
-      const filename = `${reportData.type}_report_${reportData.branch}_${dateRange.start}_to_${dateRange.end}.pdf`
+      const categoryName = reportData.category ? `_${reportData.category}` : ''
+      const filename = `${reportData.type}${categoryName}_report_${reportData.branch}_${dateRange.start}_to_${dateRange.end}.pdf`
       pdf.save(filename)
 
       Swal.fire({
@@ -542,7 +814,8 @@ export default function ReportsPage() {
     if (!reportData) return
 
     let csvContent = ''
-    let filename = `${reportData.type}_report_${reportData.branch}_${dateRange.start}_to_${dateRange.end}.csv`
+    const categoryName = reportData.category ? `_${reportData.category}` : ''
+    let filename = `${reportData.type}${categoryName}_report_${reportData.branch}_${dateRange.start}_to_${dateRange.end}.csv`
 
     switch (reportData.type) {
       case 'sales':
@@ -585,6 +858,9 @@ export default function ReportsPage() {
   const generateSalesCSV = (data) => {
     let csv = 'Sales Report\n'
     csv += `Branch: ${data.branch}\n`
+    if (data.category) {
+      csv += `Category: ${data.category}\n`
+    }
     csv += `Date Range: ${data.dateRange.start} to ${data.dateRange.end}\n\n`
     csv += 'Summary\n'
     csv += `Total Revenue,${data.summary.totalRevenue}\n`
@@ -593,7 +869,8 @@ export default function ReportsPage() {
     csv += 'Sale ID,Customer,Items,Amount,Payment Type,Date\n'
     
     data.details.forEach(sale => {
-      csv += `${sale.saleId},${sale.customer?.name || 'N/A'},${sale.items?.length || 0},${sale.adjustedAmount || sale.totalAmount},${sale.paymentType},${new Date(sale.createdAt).toLocaleDateString()}\n`
+      const paymentMethodName = getPaymentMethodName(sale, data.subMethod)
+      csv += `${sale.saleId},${sale.customer?.name || 'N/A'},${sale.items?.length || 0},${sale.adjustedAmount || sale.totalAmount},${paymentMethodName},${new Date(sale.createdAt).toLocaleDateString()}\n`
     })
     
     return csv
@@ -705,7 +982,6 @@ export default function ReportsPage() {
   return (
     <DashboardLayout>
       <div className="p-8">
-        {/* Header */}
         <div className="mb-8">
           <div className="flex justify-between items-start">
             <div className="flex-1">
@@ -716,7 +992,6 @@ export default function ReportsPage() {
               <div className="flex items-center gap-4 mt-2">
                 <p className="text-gray-500">Generate and download business reports</p>
                 
-                {/* Admin Branch Selector */}
                 {userInfo?.role === 'admin' && (
                   <div className="relative">
                     <button
@@ -759,7 +1034,6 @@ export default function ReportsPage() {
                   </div>
                 )}
 
-                {/* POS Branch Display */}
                 {userInfo?.role === 'pos' && userInfo?.branch && (
                   <span className="px-3 py-1 bg-purple-100 text-purple-700 rounded-full text-sm font-medium capitalize flex items-center gap-1">
                     <Building className="w-4 h-4" />
@@ -771,7 +1045,6 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Date Range Filter */}
         <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <Calendar className="w-5 h-5 text-purple-600" />
@@ -803,7 +1076,6 @@ export default function ReportsPage() {
           </div>
         </div>
 
-        {/* Report Type Selection */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
           {reportTypes.map((report) => {
             const Icon = report.icon
@@ -836,7 +1108,7 @@ export default function ReportsPage() {
                       Generating...
                     </span>
                   ) : (
-                    'Generate Report'
+                    report.id === 'sales' ? 'Select Category' : 'Generate Report'
                   )}
                 </button>
               </div>
@@ -844,15 +1116,228 @@ export default function ReportsPage() {
           })}
         </div>
 
-        {/* Report Display */}
+        {showSalesSubMenu && (
+          <>
+            <div 
+              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+              onClick={() => setShowSalesSubMenu(false)}
+            >
+              <div 
+                className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-6 border-b border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                        <ShoppingCart className="w-7 h-7 text-green-600" />
+                        Select Sales Report Category
+                      </h2>
+                      <p className="text-gray-600 mt-1">Choose the type of sales report you want to generate</p>
+                    </div>
+                    <button
+                      onClick={() => setShowSalesSubMenu(false)}
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {salesCategories.map((category) => {
+                    const CategoryIcon = category.icon
+                    return (
+                      <button
+                        key={category.id}
+                        onClick={() => handleSalesReportGeneration(category.id)}
+                        disabled={isLoading}
+                        className="text-left p-4 rounded-xl border-2 border-gray-200 hover:border-green-400 hover:shadow-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className={`w-12 h-12 rounded-lg bg-gradient-to-r ${category.color} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+                          <CategoryIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="font-bold text-gray-800 mb-1">{category.name}</h3>
+                        <p className="text-sm text-gray-600">{category.description}</p>
+                        {category.hasSubMenu && (
+                          <p className="text-xs text-purple-600 mt-2 font-medium">Click to see options →</p>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="p-6 border-t border-gray-200 bg-gray-50">
+                  <button
+                    onClick={() => setShowSalesSubMenu(false)}
+                    className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {showMobileBankingSubMenu && (
+          <>
+            <div 
+              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+              onClick={() => {
+                setShowMobileBankingSubMenu(false)
+                setShowSalesSubMenu(true)
+              }}
+            >
+              <div 
+                className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-6 border-b border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                        <Smartphone className="w-7 h-7 text-pink-600" />
+                        Select Mobile Banking Method
+                      </h2>
+                      <p className="text-gray-600 mt-1">Choose mobile banking payment method</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowMobileBankingSubMenu(false)
+                        setShowSalesSubMenu(true)
+                      }}
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {mobileBankingOptions.map((option) => {
+                    const OptionIcon = option.icon
+                    return (
+                      <button
+                        key={option.id}
+                        onClick={() => handleMobileBankingSelection(option.id)}
+                        disabled={isLoading}
+                        className="text-left p-4 rounded-xl border-2 border-gray-200 hover:border-pink-400 hover:shadow-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className={`w-12 h-12 rounded-lg bg-gradient-to-r ${option.color} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+                          <OptionIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="font-bold text-gray-800 mb-1">{option.name}</h3>
+                        <p className="text-sm text-gray-600">{option.description}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="p-6 border-t border-gray-200 bg-gray-50">
+                  <button
+                    onClick={() => {
+                      setShowMobileBankingSubMenu(false)
+                      setShowSalesSubMenu(true)
+                    }}
+                    className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
+        {showCardSubMenu && (
+          <>
+            <div 
+              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+              onClick={() => {
+                setShowCardSubMenu(false)
+                setShowSalesSubMenu(true)
+              }}
+            >
+              <div 
+                className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="p-6 border-b border-gray-200">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
+                        <CreditCard className="w-7 h-7 text-purple-600" />
+                        Select Card Type
+                      </h2>
+                      <p className="text-gray-600 mt-1">Choose card payment method</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setShowCardSubMenu(false)
+                        setShowSalesSubMenu(true)
+                      }}
+                      className="text-gray-400 hover:text-gray-600 transition-colors"
+                    >
+                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+
+                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {cardOptions.map((option) => {
+                    const OptionIcon = option.icon
+                    return (
+                      <button
+                        key={option.id}
+                        onClick={() => handleCardSelection(option.id)}
+                        disabled={isLoading}
+                        className="text-left p-4 rounded-xl border-2 border-gray-200 hover:border-purple-400 hover:shadow-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <div className={`w-12 h-12 rounded-lg bg-gradient-to-r ${option.color} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
+                          <OptionIcon className="w-6 h-6 text-white" />
+                        </div>
+                        <h3 className="font-bold text-gray-800 mb-1">{option.name}</h3>
+                        <p className="text-sm text-gray-600">{option.description}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div className="p-6 border-t border-gray-200 bg-gray-50">
+                  <button
+                    onClick={() => {
+                      setShowCardSubMenu(false)
+                      setShowSalesSubMenu(true)
+                    }}
+                    className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+                  >
+                    Back
+                  </button>
+                </div>
+              </div>
+            </div>
+          </>
+        )}
+
         {reportData && (
           <div className="bg-white rounded-lg shadow-sm overflow-hidden" id="report-content">
-            {/* Report Header */}
             <div className="bg-gradient-to-r from-purple-50 to-violet-50 p-6 border-b">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-2xl font-bold text-gray-800 mb-1">
                     {reportTypes.find(r => r.id === reportData.type)?.name}
+                    {reportData.category && reportData.category !== 'total_sell' && (
+                      <span className="text-lg text-purple-600 ml-2">
+                        ({formatCategory(reportData.category)})
+                      </span>
+                    )}
                   </h2>
                   <p className="text-sm text-gray-600">
                     Branch: <span className="font-medium capitalize">{reportData.branch}</span> | 
@@ -885,9 +1370,7 @@ export default function ReportsPage() {
               </div>
             </div>
 
-            {/* Report Content */}
             <div className="p-6">
-              {/* Sales Report */}
               {reportData.type === 'sales' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -947,7 +1430,7 @@ export default function ReportsPage() {
                             <td className="px-4 py-2 text-sm">{sale.customer?.name || 'N/A'}</td>
                             <td className="px-4 py-2 text-sm">{sale.items?.length || 0}</td>
                             <td className="px-4 py-2 text-sm font-bold">{formatCurrency(sale.adjustedAmount || sale.totalAmount)}</td>
-                            <td className="px-4 py-2 text-sm capitalize">{sale.paymentType}</td>
+                            <td className="px-4 py-2 text-sm capitalize">{getPaymentMethodName(sale, reportData.subMethod)}</td>
                             <td className="px-4 py-2 text-sm">{new Date(sale.createdAt).toLocaleDateString()}</td>
                           </tr>
                         ))}
@@ -957,7 +1440,6 @@ export default function ReportsPage() {
                 </div>
               )}
 
-              {/* Expenses Report */}
               {reportData.type === 'expenses' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -1018,7 +1500,6 @@ export default function ReportsPage() {
                 </div>
               )}
 
-              {/* Inventory Report */}
               {reportData.type === 'inventory' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -1091,7 +1572,6 @@ export default function ReportsPage() {
                 </div>
               )}
 
-              {/* Orders Report */}
               {reportData.type === 'orders' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -1152,7 +1632,6 @@ export default function ReportsPage() {
                 </div>
               )}
 
-              {/* Profit & Loss Report */}
               {reportData.type === 'profit' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -1211,7 +1690,6 @@ export default function ReportsPage() {
           </div>
         )}
 
-        {/* Empty State */}
         {!reportData && !isLoading && (
           <div className="bg-white rounded-lg shadow-sm p-12 text-center">
             <BarChart3 className="w-16 h-16 mx-auto text-gray-300 mb-4" />
@@ -1223,7 +1701,6 @@ export default function ReportsPage() {
         )}
       </div>
 
-      {/* Add print styles */}
       <style jsx global>{`
         @media print {
           .no-print {

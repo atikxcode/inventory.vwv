@@ -148,7 +148,7 @@ function generateSaleId() {
 
 // 🔧 SECURITY: Validate payment method
 function validatePaymentMethod(method) {
-  const validMethods = ['cash', 'bkash', 'nagad', 'visa', 'mastercard', 'debit_card']
+  const validMethods = ['cash', 'bkash', 'nagad', 'rocket', 'visa', 'mastercard', 'debit_card', 'credit_card', 'american_express']
   const validTypes = ['cash', 'mobile_banking', 'card']
   
   return (
@@ -517,7 +517,7 @@ export async function POST(req) {
   }
 }
 
-// 🔥 ENHANCED: GET method with improved date validation and error handling
+// 🔥 FIXED: GET method with END OF DAY date range fix
 export async function GET(req) {
   const ip = getUserIP(req)
   logRequest(req, 'GET')
@@ -556,7 +556,7 @@ export async function GET(req) {
     const { searchParams } = new URL(req.url)
 
     // 🔐 SECURITY: Sanitize and validate parameters
-    const limit = Math.min(Math.max(parseInt(searchParams.get('limit')) || 50, 1), 100)
+    const limit = Math.min(Math.max(parseInt(searchParams.get('limit')) || 50, 1), 1000)
     const page = Math.max(parseInt(searchParams.get('page')) || 1, 1)
     const skip = (page - 1) * limit
 
@@ -570,19 +570,24 @@ export async function GET(req) {
     const saleId = sanitizeInput(searchParams.get('saleId'))
     const branchParam = sanitizeInput(searchParams.get('branch'))
     const searchParam = sanitizeInput(searchParams.get('search'))
+    
+    // 🔥 NEW: Mobile banking and card payment method filters
+    const mobileBankingMethod = sanitizeInput(searchParams.get('mobileBankingMethod')) // bkash, nagad, rocket, all
+    const cardMethod = sanitizeInput(searchParams.get('cardMethod')) // credit_card, debit_card, american_express, all
 
     console.log('GET: Query parameters:', { 
       limit, page, startDateParam, endDateParam, paymentType, status, cashier, branchParam, searchParam,
+      mobileBankingMethod, cardMethod,
       userRole: userInfo.role, userBranch: userInfo.branch 
     })
 
     const client = await clientPromise
     const db = client.db('VWV')
 
-    // Build query filter with security validation
-    let filter = {}
+    // 🔥 CRITICAL FIX: Build query using $and array to avoid conflicts
+    let andConditions = []
 
-    // 🔥 ENHANCED: Date range validation with better error handling
+    // 🔥 CRITICAL FIX: Date range validation with END OF DAY support
     try {
       if (startDateParam || endDateParam) {
         let startDate = null
@@ -591,19 +596,25 @@ export async function GET(req) {
         // Validate start date
         if (startDateParam) {
           startDate = validateDate(startDateParam, 'start date')
+          // 🔥 FIX: Set to START of day (00:00:00.000)
+          startDate.setHours(0, 0, 0, 0)
         }
 
         // Validate end date
         if (endDateParam) {
           endDate = validateDate(endDateParam, 'end date')
+          // 🔥 CRITICAL FIX: Set to END of day (23:59:59.999)
+          endDate.setHours(23, 59, 59, 999)
         }
 
         // Set default dates if only one is provided
         if (!startDate && endDate) {
-          startDate = new Date('1900-01-01') // Default start date
+          startDate = new Date('1900-01-01')
+          startDate.setHours(0, 0, 0, 0)
         }
         if (startDate && !endDate) {
-          endDate = new Date() // Default to current date
+          endDate = new Date()
+          endDate.setHours(23, 59, 59, 999)
         }
 
         // Validate date range
@@ -616,7 +627,7 @@ export async function GET(req) {
 
         // Apply date filter
         if (startDate && endDate) {
-          filter.createdAt = { $gte: startDate, $lte: endDate }
+          andConditions.push({ createdAt: { $gte: startDate, $lte: endDate } })
           console.log('GET: Applied date filter:', { start: startDate.toISOString(), end: endDate.toISOString() })
         }
       }
@@ -628,53 +639,99 @@ export async function GET(req) {
       )
     }
 
-    // Payment type filter
-    if (paymentType && ['cash', 'mobile_banking', 'card', 'mixed'].includes(paymentType)) {
-      filter.paymentType = paymentType
+    // 🔥 FIXED: Mobile banking method filter
+    if (mobileBankingMethod) {
+      const validMobileBankingMethods = ['bkash', 'nagad', 'rocket']
+      if (mobileBankingMethod === 'all') {
+        // Show all mobile banking transactions
+        andConditions.push({ paymentType: 'mobile_banking' })
+        console.log('GET: Applied filter for all mobile banking transactions')
+      } else if (validMobileBankingMethods.includes(mobileBankingMethod)) {
+        // Filter by specific mobile banking method in payment.methods array
+        andConditions.push({ paymentType: 'mobile_banking' })
+        andConditions.push({
+          'payment.methods': {
+            $elemMatch: {
+              id: mobileBankingMethod,
+              type: 'mobile_banking'
+            }
+          }
+        })
+        console.log('GET: Applied mobile banking filter:', mobileBankingMethod)
+      }
+    }
+
+    // 🔥 FIXED: Card method filter
+    if (cardMethod) {
+      const validCardMethods = ['credit_card', 'debit_card', 'american_express']
+      if (cardMethod === 'all') {
+        // Show all card transactions
+        andConditions.push({ paymentType: 'card' })
+        console.log('GET: Applied filter for all card transactions')
+      } else if (validCardMethods.includes(cardMethod)) {
+        // Filter by specific card method in payment.methods array
+        andConditions.push({ paymentType: 'card' })
+        andConditions.push({
+          'payment.methods': {
+            $elemMatch: {
+              id: cardMethod,
+              type: 'card'
+            }
+          }
+        })
+        console.log('GET: Applied card filter:', cardMethod)
+      }
+    }
+
+    // Payment type filter (if no specific method filter applied)
+    if (paymentType && !mobileBankingMethod && !cardMethod && ['cash', 'mobile_banking', 'card', 'mixed'].includes(paymentType)) {
+      andConditions.push({ paymentType: paymentType })
     }
 
     // Status filter
     if (status && ['completed', 'pending', 'cancelled', 'refunded'].includes(status)) {
-      filter.status = status
+      andConditions.push({ status: status })
     }
 
     // Cashier filter
     if (cashier && cashier.length <= 50) {
-      filter.cashier = { $regex: cashier, $options: 'i' }
+      andConditions.push({ cashier: { $regex: cashier, $options: 'i' } })
     }
 
     // Customer name filter
     if (customerName && customerName.length <= 50) {
-      filter['customer.name'] = { $regex: customerName, $options: 'i' }
+      andConditions.push({ 'customer.name': { $regex: customerName, $options: 'i' } })
     }
 
     // Sale ID filter
     if (saleId && saleId.length <= 50) {
-      filter.saleId = { $regex: saleId, $options: 'i' }
+      andConditions.push({ saleId: { $regex: saleId, $options: 'i' } })
     }
 
     // 🔥 ENHANCED: Global search functionality
     if (searchParam && searchParam.length <= MAX_SEARCH_LENGTH) {
       const searchRegex = { $regex: searchParam, $options: 'i' }
-      filter.$or = [
-        { saleId: searchRegex },
-        { 'customer.name': searchRegex },
-        { 'customer.phone': searchRegex },
-        { cashier: searchRegex },
-        { 'items.productName': searchRegex }
-      ]
+      andConditions.push({
+        $or: [
+          { saleId: searchRegex },
+          { 'customer.name': searchRegex },
+          { 'customer.phone': searchRegex },
+          { cashier: searchRegex },
+          { 'items.productName': searchRegex }
+        ]
+      })
     }
 
-    // 🔥 ENHANCED: Role-based branch filtering with admin override capability
+    // 🔥 FIXED: Branch filtering - add to $and array
     if (branchParam && branchParam.length <= 20) {
       if (userInfo.role === 'admin') {
         // Admin can filter by any branch they request
-        filter['items.branch'] = branchParam
+        andConditions.push({ 'items.branch': branchParam })
         console.log('GET: Admin filtering by requested branch:', branchParam)
       } else if (['moderator', 'pos'].includes(userInfo.role)) {
         // Moderator/POS can only filter by their own branch or requested branch if it matches
         if (userInfo.branch && branchParam.toLowerCase() === userInfo.branch.toLowerCase()) {
-          filter['items.branch'] = userInfo.branch
+          andConditions.push({ 'items.branch': userInfo.branch })
           console.log('GET: User filtering by their branch:', userInfo.branch)
         } else {
           return NextResponse.json(
@@ -686,11 +743,14 @@ export async function GET(req) {
     } else {
       // No branch param provided - apply default role-based filtering
       if (['moderator', 'pos'].includes(userInfo.role) && userInfo.branch) {
-        filter['items.branch'] = userInfo.branch
+        andConditions.push({ 'items.branch': userInfo.branch })
         console.log('GET: User default filtering by branch:', userInfo.branch)
       }
       // Admin with no branch param sees all data (no additional filter)
     }
+
+    // 🔥 CRITICAL FIX: Build final filter using $and
+    const filter = andConditions.length > 0 ? { $and: andConditions } : {}
 
     console.log('GET: Built query filter:', JSON.stringify(filter, null, 2))
 
@@ -766,6 +826,8 @@ export async function GET(req) {
             branch: branchParam || userInfo.branch || 'all',
             dateRange: startDateParam && endDateParam ? `${startDateParam} to ${endDateParam}` : 'all',
             status: status || 'all',
+            mobileBankingMethod: mobileBankingMethod || 'none',
+            cardMethod: cardMethod || 'none',
             search: searchParam || 'none'
           }
         }
