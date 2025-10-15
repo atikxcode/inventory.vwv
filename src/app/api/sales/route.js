@@ -402,21 +402,59 @@ export async function POST(req) {
         const saleId = generateSaleId()
         console.log('POST: Generated sale ID:', saleId)
 
-        // Create sale record with sanitized data
+        // 🔥 NEW: Fetch buying prices for all products first
+        const itemsWithBuyingPrice = []
+        
+        for (let i = 0; i < body.items.length; i++) {
+          const item = body.items[i]
+          
+          // Fetch product to get buying price
+          const product = await db
+            .collection('products')
+            .findOne({ _id: new ObjectId(item.productId) }, { session })
+
+          if (!product) {
+            throw new Error(`Product not found: ${item.productName} (ID: ${item.productId})`)
+          }
+
+          const stockKey = `${item.branch}_stock`
+          const currentStock = product.stock?.[stockKey] || 0
+          
+          if (currentStock < item.quantity) {
+            throw new Error(
+              `Insufficient stock for ${product.name} at ${item.branch} branch. Available: ${currentStock}, Requested: ${item.quantity}`
+            )
+          }
+
+          // 🔥 NEW: Get buying price from product
+          const buyingPrice = parseFloat(product.buyingPrice) || 0
+          const quantity = parseInt(item.quantity)
+          const costOfGoods = buyingPrice * quantity
+          const itemProfit = parseFloat(item.totalPrice) - costOfGoods
+
+          itemsWithBuyingPrice.push({
+            productId: item.productId,
+            productName: sanitizeInput(item.productName).trim(),
+            branch: sanitizeInput(item.branch).toLowerCase(),
+            quantity: quantity,
+            unitPrice: parseFloat(item.unitPrice),           // Selling price
+            buyingPrice: buyingPrice,                        // 🔥 NEW: Buying price at time of sale
+            totalPrice: parseFloat(item.totalPrice),         // Total revenue
+            costOfGoods: costOfGoods,                        // 🔥 NEW: Total cost
+            profit: itemProfit,                              // 🔥 NEW: Item profit
+          })
+
+          console.log(`💰 Item ${i + 1}: ${item.productName} - Buying: ৳${buyingPrice}, Selling: ৳${item.unitPrice}, Profit: ৳${itemProfit}`)
+        }
+
+        // Create sale record with sanitized data and buying prices
         saleData = {
           saleId,
           customer: {
             name: customerName.trim(),
             phone: customerPhone.trim(),
           },
-          items: body.items.map(item => ({
-            productId: item.productId,
-            productName: sanitizeInput(item.productName).trim(),
-            branch: sanitizeInput(item.branch).toLowerCase(),
-            quantity: parseInt(item.quantity),
-            unitPrice: parseFloat(item.unitPrice),
-            totalPrice: parseFloat(item.totalPrice),
-          })),
+          items: itemsWithBuyingPrice,  // 🔥 UPDATED: Now includes buying price
           payment: {
             methods: body.payment.methods.map(method => ({
               id: sanitizeInput(method.id),
@@ -447,33 +485,15 @@ export async function POST(req) {
 
         // Update product stock for each item
         console.log('POST: Updating product stock...')
-        for (let i = 0; i < body.items.length; i++) {
-          const item = body.items[i]
-          console.log(`POST: Processing item ${i + 1}/${body.items.length} - ${item.productName}`)
-
-          // Check if product exists and has enough stock
-          const product = await db
-            .collection('products')
-            .findOne({ _id: new ObjectId(item.productId) }, { session })
-
-          if (!product) {
-            throw new Error(`Product not found: ${item.productName} (ID: ${item.productId})`)
-          }
-
-          const stockKey = `${item.branch}_stock`
-          const currentStock = product.stock?.[stockKey] || 0
-          
-          if (currentStock < item.quantity) {
-            throw new Error(
-              `Insufficient stock for ${product.name} at ${item.branch} branch. Available: ${currentStock}, Requested: ${item.quantity}`
-            )
-          }
+        for (let i = 0; i < itemsWithBuyingPrice.length; i++) {
+          const item = itemsWithBuyingPrice[i]
+          console.log(`POST: Processing item ${i + 1}/${itemsWithBuyingPrice.length} - ${item.productName}`)
 
           // Update stock
           const updateResult = await db.collection('products').updateOne(
             { _id: new ObjectId(item.productId) },
             {
-              $inc: { [`stock.${stockKey}`]: -item.quantity },
+              $inc: { [`stock.${item.branch}_stock`]: -item.quantity },
               $set: { 
                 updatedAt: new Date(),
                 updatedBy: userInfo.userId 

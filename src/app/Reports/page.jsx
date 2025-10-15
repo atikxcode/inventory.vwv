@@ -95,7 +95,17 @@ export default function ReportsPage() {
       textColor: 'text-amber-600',
       bgColor: 'bg-amber-50',
       borderColor: 'border-amber-200'
-    }
+    },
+    {
+    id: 'combined',
+    name: 'Combined Report',
+    description: 'All reports in one - Sales, Expenses, Inventory, Orders, and Profit',
+    icon: BarChart3,
+    color: 'from-indigo-500 to-purple-600',
+    textColor: 'text-indigo-600',
+    bgColor: 'bg-indigo-50',
+    borderColor: 'border-indigo-200'
+  }
   ]
 
   const salesCategories = [
@@ -260,25 +270,29 @@ export default function ReportsPage() {
       console.log('🔥 Generating report for branch:', currentBranch)
 
       switch (reportType) {
-        case 'sales':
-          setShowSalesSubMenu(true)
-          setIsLoading(false)
-          return
-        case 'expenses':
-          await generateExpensesReport(token, currentBranch)
-          break
-        case 'inventory':
-          await generateInventoryReport(token, currentBranch)
-          break
-        case 'orders':
-          await generateOrdersReport(token, currentBranch)
-          break
-        case 'profit':
-          await generateProfitReport(token, currentBranch)
-          break
-        default:
-          throw new Error('Invalid report type')
-      }
+      case 'sales':
+        setShowSalesSubMenu(true)
+        setIsLoading(false)
+        return
+      case 'expenses':
+        await generateExpensesReport(token, currentBranch)
+        break
+      case 'inventory':
+        await generateInventoryReport(token, currentBranch)
+        break
+      case 'orders':
+        await generateOrdersReport(token, currentBranch)
+        break
+      case 'profit':
+        await generateProfitReport(token, currentBranch)
+        break
+      case 'combined':
+        await generateCombinedReport(token, currentBranch)
+        break
+      default:
+        throw new Error('Invalid report type')
+    }
+
 
       Swal.fire({
         icon: 'success',
@@ -427,6 +441,8 @@ export default function ReportsPage() {
       params.append('mobileBankingMethod', subMethod)
     } else if (category === 'card' && subMethod) {
       params.append('cardMethod', subMethod)
+    } else if (category === 'cash_sell') {
+      params.append('paymentType', 'cash')
     }
 
     console.log('🔍 API Request:', `/api/sales?${params.toString()}`)
@@ -447,8 +463,12 @@ export default function ReportsPage() {
       
       // 🔥 CRITICAL FIX: DO NOT filter if subMethod is provided (backend already filtered)
       // ONLY filter on frontend for general categories without subMethod
+            // 🔥 FIXED: Filter logic based on category
       if (!subMethod) {
-        if (category === 'cash_sell') {
+        if (category === 'total_sell') {
+          // ✅ NO FILTERING - Show ALL sales for this branch
+          console.log('✅ Total Sell: Showing ALL sales =', sales.length)
+        } else if (category === 'cash_sell') {
           sales = sales.filter(sale => sale.paymentType?.toLowerCase() === 'cash')
           console.log('✅ Frontend filter: Cash sales =', sales.length)
         } else if (category === 'card_sell') {
@@ -462,6 +482,7 @@ export default function ReportsPage() {
         // Backend already filtered for specific method (rocket, credit_card, bkash, etc.)
         console.log('✅ Using backend-filtered data:', sales.length, 'sales for', subMethod)
       }
+
       
       const totalRevenue = sales.reduce((sum, sale) => sum + (sale.adjustedAmount || sale.totalAmount || 0), 0)
       const totalDiscount = sales.reduce((sum, sale) => sum + (sale.discount || 0), 0)
@@ -683,6 +704,7 @@ export default function ReportsPage() {
     }
   }
 
+  // 🔥 UPDATED: Profit report using stored buying prices (NO PRODUCT API CALLS!)
   const generateProfitReport = async (token, branch) => {
     const params = new URLSearchParams({
       startDate: dateRange.start,
@@ -709,18 +731,56 @@ export default function ReportsPage() {
       const sales = salesData.sales || []
       const expenses = expensesData.expenses || []
       
+      // 🔥 Calculate total revenue from adjusted amounts
       const totalRevenue = sales.reduce((sum, sale) => sum + (sale.adjustedAmount || sale.totalAmount || 0), 0)
+      
+      // 🔥 NEW: Calculate total cost using stored buying prices (INSTANT!)
+      let totalCost = 0
+      
+      for (const sale of sales) {
+        if (!sale.items || sale.items.length === 0) continue
+        
+        for (const item of sale.items) {
+          // 🔥 Use stored buying price from sale data (NO API CALL!)
+          const buyingPrice = parseFloat(item.buyingPrice) || 0
+          const quantity = parseInt(item.quantity) || 0
+          const itemCost = buyingPrice * quantity
+          
+          totalCost += itemCost
+          
+          console.log(`📦 ${item.productName}: ৳${buyingPrice} × ${quantity} = ৳${itemCost}`)
+        }
+      }
+      
+      // 🔥 Calculate gross profit
+      const grossProfit = totalRevenue - totalCost
+      
+      // Calculate total expenses
       const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
-      const netProfit = totalRevenue - totalExpenses
+      
+      // 🔥 Calculate net profit = gross profit - expenses
+      const netProfit = grossProfit - totalExpenses
+      
+      // Calculate profit margin based on net profit
       const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
+
+      console.log('✅ Profit Report Calculated:')
+      console.log('  Total Revenue:', totalRevenue)
+      console.log('  Total Cost (COGS):', totalCost)
+      console.log('  Gross Profit:', grossProfit)
+      console.log('  Total Expenses:', totalExpenses)
+      console.log('  Net Profit:', netProfit)
+      console.log('  Profit Margin:', profitMargin.toFixed(2) + '%')
 
       setReportData({
         type: 'profit',
         summary: {
           totalRevenue,
+          totalCost, // 🔥 NEW: Product cost
+          grossProfit, // 🔥 NEW: Revenue - Cost
           totalExpenses,
-          netProfit,
-          profitMargin,
+          netProfit, // 🔥 UPDATED: Gross Profit - Expenses
+          profitMargin, // 🔥 UPDATED: Based on net profit
           salesCount: sales.length,
           expensesCount: expenses.length
         },
@@ -733,6 +793,139 @@ export default function ReportsPage() {
       })
     }
   }
+
+    // 🔥 NEW: Combined Report - All reports in one!
+  const generateCombinedReport = async (token, branch) => {
+    console.log('🔍 Generating COMBINED report for branch:', branch)
+
+    try {
+      // Fetch all data in parallel for maximum speed
+      const [salesData, expensesData, productsData, ordersData] = await Promise.all([
+        // Sales
+        fetch(`/api/sales?${new URLSearchParams({
+          startDate: dateRange.start,
+          endDate: dateRange.end,
+          limit: 1000,
+          branch: branch
+        })}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        }).then(res => res.json()),
+        
+        // Expenses
+        fetch(`/api/expenses?${new URLSearchParams({
+          startDate: dateRange.start,
+          endDate: dateRange.end,
+          limit: 1000,
+          branch: branch
+        })}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        }).then(res => res.json()),
+        
+        // Inventory
+        fetch(`/api/products?limit=1000`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        }).then(res => res.json()),
+        
+        // Orders
+        fetch(`/api/orders?${new URLSearchParams({
+          startDate: dateRange.start,
+          endDate: dateRange.end,
+          limit: 1000,
+          branch: branch
+        })}`, {
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+        }).then(res => res.json())
+      ])
+
+      const sales = salesData.sales || []
+      const expenses = expensesData.expenses || []
+      const products = productsData.products || []
+      const orders = ordersData.orders || []
+
+      // Calculate Sales Summary
+      const totalRevenue = sales.reduce((sum, sale) => sum + (sale.adjustedAmount || sale.totalAmount || 0), 0)
+      let totalCost = 0
+      
+      for (const sale of sales) {
+        if (!sale.items || sale.items.length === 0) continue
+        for (const item of sale.items) {
+          const buyingPrice = parseFloat(item.buyingPrice) || 0
+          const quantity = parseInt(item.quantity) || 0
+          totalCost += buyingPrice * quantity
+        }
+      }
+      
+      const grossProfit = totalRevenue - totalCost
+
+      // Calculate Expenses Summary
+      const totalExpenses = expenses.reduce((sum, exp) => sum + exp.amount, 0)
+      const netProfit = grossProfit - totalExpenses
+      const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
+
+      // Calculate Inventory Summary
+      const branchStockKey = `${branch}_stock`
+      let totalProducts = 0
+      let totalStockValue = 0
+      let lowStockItems = 0
+
+      const branchProducts = products.filter(product => {
+        if (product.stock && product.stock[branchStockKey] !== undefined) {
+          const qty = product.stock[branchStockKey] || 0
+          totalProducts++
+          totalStockValue += qty * (product.price || 0)
+          if (qty < 10) lowStockItems++
+          return true
+        }
+        return false
+      })
+
+      // Calculate Orders Summary
+      const totalOrders = orders.length
+      const ordersRevenue = orders.reduce((sum, order) => sum + (order.totals?.total || 0), 0)
+
+      console.log('✅ Combined Report Generated Successfully')
+
+      setReportData({
+        type: 'combined',
+        summary: {
+          // Sales
+          totalRevenue,
+          totalCost,
+          grossProfit,
+          salesCount: sales.length,
+          
+          // Expenses
+          totalExpenses,
+          expensesCount: expenses.length,
+          
+          // Profit
+          netProfit,
+          profitMargin,
+          
+          // Inventory
+          totalProducts,
+          totalStockValue,
+          lowStockItems,
+          
+          // Orders
+          totalOrders,
+          ordersRevenue
+        },
+        details: {
+          sales: sales.slice(0, 10), // Top 10 sales
+          expenses: expenses.slice(0, 10), // Top 10 expenses
+          products: branchProducts.slice(0, 10), // Top 10 products
+          orders: orders.slice(0, 10) // Top 10 orders
+        },
+        dateRange,
+        branch
+      })
+    } catch (error) {
+      console.error('❌ Combined report generation error:', error)
+      throw error
+    }
+  }
+
 
   const downloadPDF = async () => {
     if (!reportData) return
@@ -833,6 +1026,9 @@ export default function ReportsPage() {
       case 'profit':
         csvContent = generateProfitCSV(reportData)
         break
+      case 'combined':
+        csvContent = generateCombinedCSV(reportData)
+        break
     }
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
@@ -927,18 +1123,54 @@ export default function ReportsPage() {
     return csv
   }
 
+  // 🔥 UPDATED: CSV export with cost breakdown
   const generateProfitCSV = (data) => {
     let csv = 'Profit & Loss Report\n'
     csv += `Branch: ${data.branch}\n`
     csv += `Date Range: ${data.dateRange.start} to ${data.dateRange.end}\n\n`
     csv += 'Summary\n'
     csv += `Total Revenue,${data.summary.totalRevenue}\n`
-    csv += `Total Expenses,${data.summary.totalExpenses}\n`
+    csv += `Product Cost (COGS),${data.summary.totalCost}\n` // 🔥 NEW
+    csv += `Gross Profit,${data.summary.grossProfit}\n` // 🔥 NEW
+    csv += `Operating Expenses,${data.summary.totalExpenses}\n`
     csv += `Net Profit,${data.summary.netProfit}\n`
     csv += `Profit Margin,${data.summary.profitMargin}%\n`
     
     return csv
   }
+
+  // Combined csv report
+    const generateCombinedCSV = (data) => {
+    let csv = 'Combined Business Report\n'
+    csv += `Branch: ${data.branch}\n`
+    csv += `Date Range: ${data.dateRange.start} to ${data.dateRange.end}\n\n`
+    
+    csv += '=== FINANCIAL SUMMARY ===\n'
+    csv += `Total Revenue,${data.summary.totalRevenue}\n`
+    csv += `Product Cost (COGS),${data.summary.totalCost}\n`
+    csv += `Gross Profit,${data.summary.grossProfit}\n`
+    csv += `Operating Expenses,${data.summary.totalExpenses}\n`
+    csv += `Net Profit,${data.summary.netProfit}\n`
+    csv += `Profit Margin,${data.summary.profitMargin}%\n\n`
+    
+    csv += '=== SALES SUMMARY ===\n'
+    csv += `Total Sales,${data.summary.salesCount}\n\n`
+    
+    csv += '=== EXPENSES SUMMARY ===\n'
+    csv += `Total Expenses,${data.summary.expensesCount}\n\n`
+    
+    csv += '=== INVENTORY SUMMARY ===\n'
+    csv += `Total Products,${data.summary.totalProducts}\n`
+    csv += `Stock Value,${data.summary.totalStockValue}\n`
+    csv += `Low Stock Items,${data.summary.lowStockItems}\n\n`
+    
+    csv += '=== ORDERS SUMMARY ===\n'
+    csv += `Total Orders,${data.summary.totalOrders}\n`
+    csv += `Orders Revenue,${data.summary.ordersRevenue}\n`
+    
+    return csv
+  }
+
 
   const printReport = () => {
     window.print()
@@ -1116,6 +1348,7 @@ export default function ReportsPage() {
           })}
         </div>
 
+        {/* Sales Sub-Menu Modal - KEEPING SAME */}
         {showSalesSubMenu && (
           <>
             <div 
@@ -1182,6 +1415,7 @@ export default function ReportsPage() {
           </>
         )}
 
+        {/* Mobile Banking Modal - KEEPING SAME */}
         {showMobileBankingSubMenu && (
           <>
             <div 
@@ -1254,6 +1488,7 @@ export default function ReportsPage() {
           </>
         )}
 
+        {/* Card Sub-Menu Modal - KEEPING SAME */}
         {showCardSubMenu && (
           <>
             <div 
@@ -1326,6 +1561,7 @@ export default function ReportsPage() {
           </>
         )}
 
+        {/* Report Display Area - Continue with existing code... */}
         {reportData && (
           <div className="bg-white rounded-lg shadow-sm overflow-hidden" id="report-content">
             <div className="bg-gradient-to-r from-purple-50 to-violet-50 p-6 border-b">
@@ -1371,6 +1607,7 @@ export default function ReportsPage() {
             </div>
 
             <div className="p-6">
+              {/* Sales Report Display - KEEPING SAME */}
               {reportData.type === 'sales' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
@@ -1440,6 +1677,7 @@ export default function ReportsPage() {
                 </div>
               )}
 
+              {/* Expenses Report - KEEPING SAME (code continues...) */}
               {reportData.type === 'expenses' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -1500,6 +1738,7 @@ export default function ReportsPage() {
                 </div>
               )}
 
+              {/* Inventory Report - KEEPING SAME */}
               {reportData.type === 'inventory' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -1572,6 +1811,7 @@ export default function ReportsPage() {
                 </div>
               )}
 
+              {/* Orders Report - KEEPING SAME */}
               {reportData.type === 'orders' && (
                 <div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -1632,9 +1872,11 @@ export default function ReportsPage() {
                 </div>
               )}
 
+              {/* 🔥 UPDATED: Profit & Loss Report with Cost Breakdown */}
+              
               {reportData.type === 'profit' && (
                 <div>
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                  <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-6">
                     <div className="bg-green-50 p-4 rounded-lg border border-green-200">
                       <p className="text-sm text-gray-600 mb-1">Total Revenue</p>
                       <p className="text-2xl font-bold text-green-600">
@@ -1642,8 +1884,15 @@ export default function ReportsPage() {
                       </p>
                       <p className="text-xs text-gray-500 mt-1">{reportData.summary.salesCount} sales</p>
                     </div>
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                      <p className="text-sm text-gray-600 mb-1">Product Cost</p>
+                      <p className="text-2xl font-bold text-orange-600">
+                        {formatCurrency(reportData.summary.totalCost)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">COGS</p>
+                    </div>
                     <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                      <p className="text-sm text-gray-600 mb-1">Total Expenses</p>
+                      <p className="text-sm text-gray-600 mb-1">Operating Expenses</p>
                       <p className="text-2xl font-bold text-red-600">
                         {formatCurrency(reportData.summary.totalExpenses)}
                       </p>
@@ -1673,7 +1922,15 @@ export default function ReportsPage() {
                         <span className="font-bold text-green-600">{formatCurrency(reportData.summary.totalRevenue)}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 bg-white rounded">
-                        <span className="font-medium text-gray-700">Expenses</span>
+                        <span className="font-medium text-gray-700">Product Cost (COGS)</span>
+                        <span className="font-bold text-orange-600">-{formatCurrency(reportData.summary.totalCost)}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-white rounded border-l-4 border-blue-400">
+                        <span className="font-bold text-gray-800">Gross Profit</span>
+                        <span className="font-bold text-blue-600">{formatCurrency(reportData.summary.grossProfit)}</span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-white rounded">
+                        <span className="font-medium text-gray-700">Operating Expenses</span>
                         <span className="font-bold text-red-600">-{formatCurrency(reportData.summary.totalExpenses)}</span>
                       </div>
                       <div className="flex justify-between items-center p-3 bg-white rounded border-t-2 border-purple-300">
@@ -1686,6 +1943,179 @@ export default function ReportsPage() {
                   </div>
                 </div>
               )}
+
+                            {/* 🔥 NEW: Combined Report Display */}
+              {reportData.type === 'combined' && (
+                <div>
+                  {/* Summary Cards Grid */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                    <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+                      <p className="text-sm text-gray-600 mb-1">Total Revenue</p>
+                      <p className="text-2xl font-bold text-green-600">
+                        {formatCurrency(reportData.summary.totalRevenue)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{reportData.summary.salesCount} sales</p>
+                    </div>
+                    <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+                      <p className="text-sm text-gray-600 mb-1">Total Expenses</p>
+                      <p className="text-2xl font-bold text-red-600">
+                        {formatCurrency(reportData.summary.totalExpenses)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{reportData.summary.expensesCount} expenses</p>
+                    </div>
+                    <div className={`${reportData.summary.netProfit >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'} p-4 rounded-lg border`}>
+                      <p className="text-sm text-gray-600 mb-1">Net Profit</p>
+                      <p className={`text-2xl font-bold ${reportData.summary.netProfit >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>
+                        {formatCurrency(reportData.summary.netProfit)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{reportData.summary.profitMargin.toFixed(1)}% margin</p>
+                    </div>
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                      <p className="text-sm text-gray-600 mb-1">Stock Value</p>
+                      <p className="text-2xl font-bold text-purple-600">
+                        {formatCurrency(reportData.summary.totalStockValue)}
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">{reportData.summary.totalProducts} products</p>
+                    </div>
+                  </div>
+
+                  {/* Financial Overview */}
+                  <div className="bg-gradient-to-r from-purple-50 to-violet-50 p-6 rounded-lg border border-purple-200 mb-6">
+                    <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-purple-600" />
+                      Financial Overview
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="bg-white p-4 rounded-lg">
+                        <h4 className="font-bold text-gray-700 mb-2">Income</h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Sales Revenue</span>
+                            <span className="font-bold text-green-600">{formatCurrency(reportData.summary.totalRevenue)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="bg-white p-4 rounded-lg">
+                        <h4 className="font-bold text-gray-700 mb-2">Expenses</h4>
+                        <div className="space-y-2">
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Product Cost</span>
+                            <span className="font-bold text-orange-600">{formatCurrency(reportData.summary.totalCost)}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-sm text-gray-600">Operating Expenses</span>
+                            <span className="font-bold text-red-600">{formatCurrency(reportData.summary.totalExpenses)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Individual Report Sections */}
+                  <div className="space-y-6">
+                    {/* Sales Summary */}
+                    <div className="bg-white border border-gray-200 rounded-lg p-6">
+                      <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <ShoppingCart className="w-5 h-5 text-green-600" />
+                        Sales Summary
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Sale ID</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Customer</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Amount</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {reportData.details.sales.map((sale) => (
+                              <tr key={sale._id}>
+                                <td className="px-4 py-2 text-sm">{sale.saleId}</td>
+                                <td className="px-4 py-2 text-sm">{sale.customer?.name || 'N/A'}</td>
+                                <td className="px-4 py-2 text-sm font-bold">{formatCurrency(sale.adjustedAmount || sale.totalAmount)}</td>
+                                <td className="px-4 py-2 text-sm">{new Date(sale.createdAt).toLocaleDateString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Expenses Summary */}
+                    <div className="bg-white border border-gray-200 rounded-lg p-6">
+                      <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <Receipt className="w-5 h-5 text-red-600" />
+                        Expenses Summary
+                      </h3>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Expense ID</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Category</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Amount</th>
+                              <th className="px-4 py-2 text-left text-xs font-medium text-gray-700">Date</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {reportData.details.expenses.map((expense) => (
+                              <tr key={expense._id}>
+                                <td className="px-4 py-2 text-sm">{expense.expenseId}</td>
+                                <td className="px-4 py-2 text-sm capitalize">{formatCategory(expense.category)}</td>
+                                <td className="px-4 py-2 text-sm font-bold">{formatCurrency(expense.amount)}</td>
+                                <td className="px-4 py-2 text-sm">{new Date(expense.expenseDate).toLocaleDateString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+
+                    {/* Inventory Summary */}
+                    <div className="bg-white border border-gray-200 rounded-lg p-6">
+                      <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <Package className="w-5 h-5 text-blue-600" />
+                        Inventory Summary
+                      </h3>
+                      <div className="grid grid-cols-3 gap-4 mb-4">
+                        <div className="bg-blue-50 p-3 rounded-lg text-center">
+                          <p className="text-sm text-gray-600">Total Products</p>
+                          <p className="text-xl font-bold text-blue-600">{reportData.summary.totalProducts}</p>
+                        </div>
+                        <div className="bg-green-50 p-3 rounded-lg text-center">
+                          <p className="text-sm text-gray-600">Stock Value</p>
+                          <p className="text-xl font-bold text-green-600">{formatCurrency(reportData.summary.totalStockValue)}</p>
+                        </div>
+                        <div className="bg-red-50 p-3 rounded-lg text-center">
+                          <p className="text-sm text-gray-600">Low Stock</p>
+                          <p className="text-xl font-bold text-red-600">{reportData.summary.lowStockItems}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Orders Summary */}
+                    <div className="bg-white border border-gray-200 rounded-lg p-6">
+                      <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <ClipboardList className="w-5 h-5 text-purple-600" />
+                        Orders Summary
+                      </h3>
+                      <div className="grid grid-cols-2 gap-4 mb-4">
+                        <div className="bg-purple-50 p-3 rounded-lg text-center">
+                          <p className="text-sm text-gray-600">Total Orders</p>
+                          <p className="text-xl font-bold text-purple-600">{reportData.summary.totalOrders}</p>
+                        </div>
+                        <div className="bg-green-50 p-3 rounded-lg text-center">
+                          <p className="text-sm text-gray-600">Orders Revenue</p>
+                          <p className="text-xl font-bold text-green-600">{formatCurrency(reportData.summary.ordersRevenue)}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
             </div>
           </div>
         )}

@@ -35,10 +35,10 @@ export default function DashboardPage() {
   
   const [summary, setSummary] = useState({
     totalRevenue: 0,
-    totalCost: 0, // 🔥 NEW: Total buying cost
+    totalCost: 0, // 🔥 Total buying cost
     totalExpenses: 0,
-    grossProfit: 0, // 🔥 NEW: Revenue - Cost
-    netProfit: 0, // 🔥 NEW: Revenue - Cost - Expenses
+    grossProfit: 0, // 🔥 Revenue - Cost
+    netProfit: 0, // 🔥 Revenue - Cost - Expenses
     totalOrders: 0,
     totalSales: 0,
     avgOrderValue: 0,
@@ -131,7 +131,7 @@ export default function DashboardPage() {
     }
   }
 
-  // 🔥 UPDATED: Add branch filter to sales API
+  // 🔥 UPDATED: Fetch sales with buying price already included
   const fetchSales = async () => {
     try {
       const token = localStorage.getItem('auth-token')
@@ -159,73 +159,49 @@ export default function DashboardPage() {
         setSalesData(data.sales || [])
         setRecentSales((data.sales || []).slice(0, 5))
         
-        // 🔥 NEW: Calculate sales metrics with product costs
-        await calculateSalesMetricsWithCosts(data.sales || [])
+        // 🔥 UPDATED: Calculate sales metrics from stored buying prices
+        calculateSalesMetrics(data.sales || [])
       }
     } catch (error) {
       console.error('Error fetching sales:', error)
     }
   }
 
-  // 🔥 NEW: Fetch product details to get buying prices
-  const fetchProductDetails = async (productId) => {
-    try {
-      const token = localStorage.getItem('auth-token')
-      const response = await fetch(`/api/products?id=${productId}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json'
-        }
-      })
-
-      if (response.ok) {
-        const product = await response.json()
-        return product
-      }
-    } catch (error) {
-      console.error('Error fetching product:', error)
-    }
-    return null
-  }
-
-  // 🔥 NEW: Calculate sales metrics including product costs
-  const calculateSalesMetricsWithCosts = async (sales) => {
-    const totalRevenue = sales.reduce((sum, sale) => sum + (sale.adjustedAmount || sale.totalAmount || 0), 0)
-    const totalOrders = sales.length
-    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
-
-    // 🔥 NEW: Calculate total buying cost for all sales
+  // 🔥 OPTIMIZED: Calculate sales metrics using buying price from sales data (INSTANT!)
+  const calculateSalesMetrics = (sales) => {
+    console.log('💰 Calculating metrics for', sales.length, 'sales...')
+    
+    // Calculate total revenue
+    const totalRevenue = sales.reduce((sum, sale) => 
+      sum + (sale.adjustedAmount || sale.totalAmount || 0), 0
+    )
+    
+    // 🔥 OPTIMIZED: Calculate total cost from stored buying prices (NO API CALLS!)
     let totalCost = 0
-
-    console.log('💰 Calculating buying costs for', sales.length, 'sales...')
-
+    
     for (const sale of sales) {
       if (!sale.items || sale.items.length === 0) continue
-
+      
       for (const item of sale.items) {
-        // Fetch product details to get buying price
-        const product = await fetchProductDetails(item.productId)
+        // 🔥 Use stored buying price from sale data
+        const buyingPrice = parseFloat(item.buyingPrice) || 0
+        const quantity = parseInt(item.quantity) || 0
+        const itemCost = buyingPrice * quantity
         
-        if (product && product.buyingPrice) {
-          const buyingPrice = parseFloat(product.buyingPrice) || 0
-          const quantity = parseInt(item.quantity) || 0
-          const itemCost = buyingPrice * quantity
-          
-          totalCost += itemCost
-          
-          console.log(`📦 ${item.productName}: ₹${buyingPrice} × ${quantity} = ₹${itemCost}`)
-        } else {
-          // If product not found or no buying price, assume 0
-          console.warn(`⚠️ No buying price found for product: ${item.productName} (${item.productId})`)
-        }
+        totalCost += itemCost
+        
+        console.log(`📦 ${item.productName}: ৳${buyingPrice} × ${quantity} = ৳${itemCost}`)
       }
     }
 
-    console.log('✅ Total buying cost:', totalCost)
-    console.log('✅ Total revenue:', totalRevenue)
-    
+    const totalOrders = sales.length
+    const avgOrderValue = totalOrders > 0 ? totalRevenue / totalOrders : 0
     const grossProfit = totalRevenue - totalCost
 
+    console.log('✅ Total Revenue:', totalRevenue)
+    console.log('✅ Total Cost:', totalCost)
+    console.log('✅ Gross Profit:', grossProfit)
+    
     setSummary(prev => ({
       ...prev,
       totalRevenue,
@@ -291,9 +267,13 @@ export default function DashboardPage() {
     setTopExpenseCategories(categoryBreakdown.slice(0, 5))
 
     setSummary(prev => {
-      // 🔥 NEW: Net profit = Revenue - Cost - Expenses
+      // 🔥 Net profit = Gross Profit - Operating Expenses
       const netProfit = prev.grossProfit - totalExpenses
       const profitMargin = prev.totalRevenue > 0 ? (netProfit / prev.totalRevenue) * 100 : 0
+
+      console.log('✅ Total Expenses:', totalExpenses)
+      console.log('✅ Net Profit:', netProfit)
+      console.log('✅ Profit Margin:', profitMargin.toFixed(2) + '%')
 
       return {
         ...prev,
@@ -515,7 +495,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 🔥 UPDATED: Key Metrics Cards with Cost Breakdown */}
+        {/* 🔥 Key Metrics Cards with Cost Breakdown */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-6">
           {/* Total Revenue */}
           <div className="bg-gradient-to-br from-green-500 to-emerald-600 text-white p-6 rounded-xl shadow-lg">
@@ -530,7 +510,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* 🔥 NEW: Total Cost */}
+          {/* 🔥 Total Cost */}
           <div className="bg-gradient-to-br from-orange-500 to-amber-600 text-white p-6 rounded-xl shadow-lg">
             <div className="flex items-center justify-between mb-2">
               <p className="text-orange-100 text-sm font-medium">Product Cost</p>
@@ -584,7 +564,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 🔥 UPDATED: Charts Row with Cost Breakdown */}
+        {/* 🔥 Charts Row with Cost Breakdown */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
           {/* Revenue vs Costs vs Expenses Chart */}
           <div className="bg-white rounded-xl shadow-sm p-6">
@@ -609,7 +589,7 @@ export default function DashboardPage() {
                 </div>
               </div>
 
-              {/* 🔥 NEW: Product Cost Bar */}
+              {/* 🔥 Product Cost Bar */}
               <div>
                 <div className="flex justify-between text-sm mb-1">
                   <span className="text-gray-600 font-medium">Product Cost</span>
