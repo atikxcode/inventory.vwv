@@ -41,8 +41,6 @@ export default function ReportsPage() {
   const [availableBranches, setAvailableBranches] = useState([])
   const [isBranchDropdownOpen, setIsBranchDropdownOpen] = useState(false)
   const [showSalesSubMenu, setShowSalesSubMenu] = useState(false)
-  const [showMobileBankingSubMenu, setShowMobileBankingSubMenu] = useState(false)
-  const [showCardSubMenu, setShowCardSubMenu] = useState(false)
   const [selectedSalesCategory, setSelectedSalesCategory] = useState(null)
 
   const reportTypes = [
@@ -109,99 +107,36 @@ export default function ReportsPage() {
   ]
 
   const salesCategories = [
-    {
-      id: 'total_sell',
-      name: 'Total Sell',
-      description: 'All sales transactions',
-      icon: ShoppingCart,
-      color: 'from-green-500 to-emerald-600'
-    },
-    {
-      id: 'cash_sell',
-      name: 'Cash Sell',
-      description: 'Cash payment sales only',
-      icon: DollarSign,
-      color: 'from-blue-500 to-cyan-600'
-    },
-    {
-      id: 'mobile_banking',
-      name: 'Mobile Banking',
-      description: 'Mobile banking payment sales',
-      icon: Smartphone,
-      color: 'from-pink-500 to-rose-600',
-      hasSubMenu: true
-    },
-    {
-      id: 'card_sell',
-      name: 'Card Sell',
-      description: 'Card payment sales',
-      icon: CreditCard,
-      color: 'from-purple-500 to-violet-600',
-      hasSubMenu: true
-    }
-  ]
+  {
+    id: 'cashsell',
+    name: 'Cash',
+    description: 'Sales paid by cash only',
+    icon: DollarSign,
+    color: 'from-blue-500 to-cyan-600',
+    hasSubMenu: false,
+  },
+  {
+    id: 'mobilebanking',
+    name: 'Bkash',
+    description: 'Sales paid by Bkash only',
+    icon: Smartphone,
+    color: 'from-pink-500 to-rose-600',
+    hasSubMenu: false,
+  },
+  {
+    id: 'banksell',
+    name: 'Bank',
+    description: 'Sales paid by bank transfer only',
+    icon: CreditCard,
+    color: 'from-purple-500 to-violet-600',
+    hasSubMenu: false,
+  },
+]
 
-  const mobileBankingOptions = [
-    {
-      id: 'bkash',
-      name: 'Bkash',
-      description: 'Bkash payment sales',
-      icon: Smartphone,
-      color: 'from-pink-500 to-rose-600'
-    },
-    {
-      id: 'nagad',
-      name: 'Nagad',
-      description: 'Nagad payment sales',
-      icon: Smartphone,
-      color: 'from-orange-500 to-amber-600'
-    },
-    {
-      id: 'rocket',
-      name: 'Rocket',
-      description: 'Rocket payment sales',
-      icon: Smartphone,
-      color: 'from-purple-500 to-violet-600'
-    },
-    {
-      id: 'all',
-      name: 'All Type',
-      description: 'All mobile banking sales',
-      icon: Smartphone,
-      color: 'from-blue-500 to-cyan-600'
-    }
-  ]
 
-  const cardOptions = [
-    {
-      id: 'credit_card',
-      name: 'Credit Card',
-      description: 'Credit card payment sales',
-      icon: CreditCard,
-      color: 'from-blue-500 to-indigo-600'
-    },
-    {
-      id: 'debit_card',
-      name: 'Debit Card',
-      description: 'Debit card payment sales',
-      icon: CreditCard,
-      color: 'from-green-500 to-emerald-600'
-    },
-    {
-      id: 'american_express',
-      name: 'American Express',
-      description: 'American Express card sales',
-      icon: CreditCard,
-      color: 'from-slate-500 to-gray-600'
-    },
-    {
-      id: 'all',
-      name: 'All Type',
-      description: 'All card payment sales',
-      icon: CreditCard,
-      color: 'from-purple-500 to-violet-600'
-    }
-  ]
+
+
+
 
   useEffect(() => {
     const storedUserInfo = localStorage.getItem('user-info')
@@ -315,118 +250,43 @@ export default function ReportsPage() {
     }
   }
 
-  const handleSalesReportGeneration = async (category) => {
-    if (category === 'mobile_banking') {
-      setShowMobileBankingSubMenu(true)
-      return
-    }
-    if (category === 'card_sell') {
-      setShowCardSubMenu(true)
-      return
-    }
+const handleSalesReportGeneration = async (category) => {
+  setIsLoading(true)
+  setSelectedReport('sales')
+  setSelectedSalesCategory(category)
+  setShowSalesSubMenu(false)
 
-    setIsLoading(true)
-    setSelectedReport('sales')
-    setSelectedSalesCategory(category)
-    setShowSalesSubMenu(false)
-    
-    try {
-      const token = localStorage.getItem('auth-token')
-      const currentBranch = selectedBranch || userInfo?.branch
+  try {
+    const token = localStorage.getItem('auth-token')
+    const currentBranch = selectedBranch || userInfo?.branch
 
-      console.log('🔥 Generating sales report for branch:', currentBranch, 'Category:', category)
-      await generateSalesReport(token, currentBranch, category)
+    console.log('🔥 Generating sales report for branch:', currentBranch, 'Category:', category)
+    await generateSalesReport(token, currentBranch, category)
 
-      Swal.fire({
-        icon: 'success',
-        title: 'Report Generated!',
-        text: 'Your report is ready to view or download',
-        confirmButtonColor: '#7c3aed',
-        timer: 2000,
-        showConfirmButton: false
-      })
-    } catch (error) {
-      console.error('Report generation error:', error)
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Failed to generate report. Please try again.',
-        confirmButtonColor: '#7c3aed'
-      })
-    } finally {
-      setIsLoading(false)
-    }
+    Swal.fire({
+      icon: 'success',
+      title: 'Report Generated!',
+      text: 'Your report is ready to view or download',
+      confirmButtonColor: '#7c3aed',
+      timer: 2000,
+      showConfirmButton: false
+    })
+  } catch (error) {
+    console.error('Report generation error:', error)
+    Swal.fire({
+      icon: 'error',
+      title: 'Error',
+      text: 'Failed to generate report. Please try again.',
+      confirmButtonColor: '#7c3aed'
+    })
+  } finally {
+    setIsLoading(false)
   }
+}
 
-  const handleMobileBankingSelection = async (method) => {
-    setIsLoading(true)
-    setSelectedReport('sales')
-    setSelectedSalesCategory(`mobile_banking_${method}`)
-    setShowMobileBankingSubMenu(false)
-    setShowSalesSubMenu(false)
-    
-    try {
-      const token = localStorage.getItem('auth-token')
-      const currentBranch = selectedBranch || userInfo?.branch
 
-      console.log('🔥 Generating mobile banking sales report:', method)
-      await generateSalesReport(token, currentBranch, 'mobile_banking', method)
 
-      Swal.fire({
-        icon: 'success',
-        title: 'Report Generated!',
-        text: 'Your mobile banking report is ready',
-        confirmButtonColor: '#7c3aed',
-        timer: 2000,
-        showConfirmButton: false
-      })
-    } catch (error) {
-      console.error('Report generation error:', error)
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Failed to generate report. Please try again.',
-        confirmButtonColor: '#7c3aed'
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
-  const handleCardSelection = async (method) => {
-    setIsLoading(true)
-    setSelectedReport('sales')
-    setSelectedSalesCategory(`card_${method}`)
-    setShowCardSubMenu(false)
-    setShowSalesSubMenu(false)
-    
-    try {
-      const token = localStorage.getItem('auth-token')
-      const currentBranch = selectedBranch || userInfo?.branch
-
-      console.log('🔥 Generating card sales report:', method)
-      await generateSalesReport(token, currentBranch, 'card', method)
-
-      Swal.fire({
-        icon: 'success',
-        title: 'Report Generated!',
-        text: 'Your card sales report is ready',
-        confirmButtonColor: '#7c3aed',
-        timer: 2000,
-        showConfirmButton: false
-      })
-    } catch (error) {
-      console.error('Report generation error:', error)
-      Swal.fire({
-        icon: 'error',
-        title: 'Error',
-        text: 'Failed to generate report. Please try again.',
-        confirmButtonColor: '#7c3aed'
-      })
-    } finally {
-      setIsLoading(false)
-    }
-  }
 
   const generateSalesReport = async (token, branch, category = 'total_sell', subMethod = null) => {
     const params = new URLSearchParams({
@@ -437,13 +297,13 @@ export default function ReportsPage() {
     })
 
     // 🔥 FIXED: Send proper API params based on category and subMethod
-    if (category === 'mobile_banking' && subMethod) {
-      params.append('mobileBankingMethod', subMethod)
-    } else if (category === 'card' && subMethod) {
-      params.append('cardMethod', subMethod)
-    } else if (category === 'cash_sell') {
-      params.append('paymentType', 'cash')
-    }
+if (category === 'cashsell') {
+  params.append('paymentType', 'cash')
+} else if (category === 'mobilebanking') {
+  params.append('paymentType', 'mobile_banking')
+} else if (category === 'banksell') {
+  params.append('paymentType', 'bank_transfer')
+}
 
     console.log('🔍 API Request:', `/api/sales?${params.toString()}`)
 
@@ -464,24 +324,21 @@ export default function ReportsPage() {
       // 🔥 CRITICAL FIX: DO NOT filter if subMethod is provided (backend already filtered)
       // ONLY filter on frontend for general categories without subMethod
             // 🔥 FIXED: Filter logic based on category
-      if (!subMethod) {
-        if (category === 'total_sell') {
-          // ✅ NO FILTERING - Show ALL sales for this branch
-          console.log('✅ Total Sell: Showing ALL sales =', sales.length)
-        } else if (category === 'cash_sell') {
-          sales = sales.filter(sale => sale.paymentType?.toLowerCase() === 'cash')
-          console.log('✅ Frontend filter: Cash sales =', sales.length)
-        } else if (category === 'card_sell') {
-          sales = sales.filter(sale => sale.paymentType?.toLowerCase() === 'card')
-          console.log('✅ Frontend filter: Card sales =', sales.length)
-        } else if (category === 'mobile_banking') {
-          sales = sales.filter(sale => sale.paymentType?.toLowerCase() === 'mobile_banking')
-          console.log('✅ Frontend filter: Mobile banking sales =', sales.length)
-        }
-      } else {
-        // Backend already filtered for specific method (rocket, credit_card, bkash, etc.)
-        console.log('✅ Using backend-filtered data:', sales.length, 'sales for', subMethod)
-      }
+if (!subMethod) {
+  if (category === 'cashsell') {
+    sales = sales.filter(sale => sale.paymentType === 'cash')
+    console.log('✅ Frontend filter: Cash sales =', sales.length)
+  } else if (category === 'mobilebanking') {
+    sales = sales.filter(sale => sale.paymentType === 'mobile_banking')
+    console.log('✅ Frontend filter: Bkash sales =', sales.length)
+  } else if (category === 'banksell') {
+    sales = sales.filter(sale => sale.paymentType === 'bank_transfer')
+    console.log('✅ Frontend filter: Bank sales =', sales.length)
+  }
+} else {
+  // Backend already filtered for specific method (rocket, credit_card, bkash, etc.)
+  console.log('✅ Using backend-filtered data:', sales.length, 'sales for', subMethod)
+}
 
       
       const totalRevenue = sales.reduce((sum, sale) => sum + (sale.adjustedAmount || sale.totalAmount || 0), 0)
@@ -1415,151 +1272,8 @@ export default function ReportsPage() {
           </>
         )}
 
-        {/* Mobile Banking Modal - KEEPING SAME */}
-        {showMobileBankingSubMenu && (
-          <>
-            <div 
-              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-              onClick={() => {
-                setShowMobileBankingSubMenu(false)
-                setShowSalesSubMenu(true)
-              }}
-            >
-              <div 
-                className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                        <Smartphone className="w-7 h-7 text-pink-600" />
-                        Select Mobile Banking Method
-                      </h2>
-                      <p className="text-gray-600 mt-1">Choose mobile banking payment method</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setShowMobileBankingSubMenu(false)
-                        setShowSalesSubMenu(true)
-                      }}
-                      className="text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
 
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {mobileBankingOptions.map((option) => {
-                    const OptionIcon = option.icon
-                    return (
-                      <button
-                        key={option.id}
-                        onClick={() => handleMobileBankingSelection(option.id)}
-                        disabled={isLoading}
-                        className="text-left p-4 rounded-xl border-2 border-gray-200 hover:border-pink-400 hover:shadow-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <div className={`w-12 h-12 rounded-lg bg-gradient-to-r ${option.color} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
-                          <OptionIcon className="w-6 h-6 text-white" />
-                        </div>
-                        <h3 className="font-bold text-gray-800 mb-1">{option.name}</h3>
-                        <p className="text-sm text-gray-600">{option.description}</p>
-                      </button>
-                    )
-                  })}
-                </div>
 
-                <div className="p-6 border-t border-gray-200 bg-gray-50">
-                  <button
-                    onClick={() => {
-                      setShowMobileBankingSubMenu(false)
-                      setShowSalesSubMenu(true)
-                    }}
-                    className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    Back
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
-
-        {/* Card Sub-Menu Modal - KEEPING SAME */}
-        {showCardSubMenu && (
-          <>
-            <div 
-              className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
-              onClick={() => {
-                setShowCardSubMenu(false)
-                setShowSalesSubMenu(true)
-              }}
-            >
-              <div 
-                className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <div className="p-6 border-b border-gray-200">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <h2 className="text-2xl font-bold text-gray-800 flex items-center gap-2">
-                        <CreditCard className="w-7 h-7 text-purple-600" />
-                        Select Card Type
-                      </h2>
-                      <p className="text-gray-600 mt-1">Choose card payment method</p>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setShowCardSubMenu(false)
-                        setShowSalesSubMenu(true)
-                      }}
-                      className="text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-                </div>
-
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {cardOptions.map((option) => {
-                    const OptionIcon = option.icon
-                    return (
-                      <button
-                        key={option.id}
-                        onClick={() => handleCardSelection(option.id)}
-                        disabled={isLoading}
-                        className="text-left p-4 rounded-xl border-2 border-gray-200 hover:border-purple-400 hover:shadow-lg transition-all group disabled:opacity-50 disabled:cursor-not-allowed"
-                      >
-                        <div className={`w-12 h-12 rounded-lg bg-gradient-to-r ${option.color} flex items-center justify-center mb-3 group-hover:scale-110 transition-transform`}>
-                          <OptionIcon className="w-6 h-6 text-white" />
-                        </div>
-                        <h3 className="font-bold text-gray-800 mb-1">{option.name}</h3>
-                        <p className="text-sm text-gray-600">{option.description}</p>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                <div className="p-6 border-t border-gray-200 bg-gray-50">
-                  <button
-                    onClick={() => {
-                      setShowCardSubMenu(false)
-                      setShowSalesSubMenu(true)
-                    }}
-                    className="w-full py-3 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
-                  >
-                    Back
-                  </button>
-                </div>
-              </div>
-            </div>
-          </>
-        )}
 
         {/* Report Display Area - Continue with existing code... */}
         {reportData && (
