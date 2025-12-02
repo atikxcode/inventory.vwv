@@ -28,7 +28,7 @@ const uploadTracker = new Map()
 function handleApiError(error, context = '') {
   console.error(`🚨 API Error in ${context}:`, error)
   console.error('Error stack:', error.stack)
-  
+
   const isDevelopment = process.env.NODE_ENV === 'development'
 
   return NextResponse.json(
@@ -49,75 +49,75 @@ function handleApiError(error, context = '') {
 // 🔐 SECURITY: Enhanced request logging
 function logRequest(req, method) {
   const timestamp = new Date().toISOString()
-  const ip = req.headers.get('x-forwarded-for')?.split(',') || 
-            req.headers.get('x-real-ip') || 
-            'unknown'
+  const ip = req.headers.get('x-forwarded-for')?.split(',') ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
   const userAgent = req.headers.get('user-agent') || 'unknown'
-  
+
   console.log(`[${timestamp}] ${method} /api/products - IP: ${ip} - UserAgent: ${userAgent.substring(0, 100)}`)
   console.log('URL:', req.url)
 }
 
 function sanitizeInput(input) {
   if (typeof input !== 'string') return input
-  
+
   return input
-    .replace(/[<>"'%;()&+${}]/g, '') 
-    .replace(/javascript:/gi, '') 
-    .replace(/data:/gi, '') 
+    .replace(/[<>"'%;()&+${}]/g, '')
+    .replace(/javascript:/gi, '')
+    .replace(/data:/gi, '')
     .trim()
-    .substring(0, 1000) 
+    .substring(0, 1000)
 }
 
 //  Product specific sanitization [allows & and /]
 function sanitizeProductInput(input) {
   if (typeof input !== 'string') return input
-  
+
   return input
-    .replace(/[<>"'%;]/g, '') 
-    .replace(/\$/g, '') 
-    .replace(/\{/g, '') 
-    .replace(/\}/g, '') 
-    .replace(/\+/g, '') 
-    .replace(/\(/g, '') 
-    .replace(/\)/g, '') 
+    .replace(/[<>"'%;]/g, '')
+    .replace(/\$/g, '')
+    .replace(/\{/g, '')
+    .replace(/\}/g, '')
+    .replace(/\+/g, '')
+    .replace(/\(/g, '')
+    .replace(/\)/g, '')
     .replace(/javascript:/gi, '')
-    .replace(/data:/gi, '') 
-    .replace(/on\w+=/gi, '') 
-    .replace(/expression\(/gi, '') 
+    .replace(/data:/gi, '')
+    .replace(/on\w+=/gi, '')
+    .replace(/expression\(/gi, '')
     .trim()
-    .substring(0, 1000) 
+    .substring(0, 1000)
 }
 
 // 🆕 NEW: Description-specific sanitization with 2000 WORD limit
 function sanitizeDescriptionInput(input) {
   if (typeof input !== 'string') return input
-  
+
   // First sanitize for security
   let sanitized = input
-    .replace(/[<>"'%;]/g, '') 
-    .replace(/\$/g, '') 
-    .replace(/\{/g, '') 
-    .replace(/\}/g, '') 
+    .replace(/[<>"'%;]/g, '')
+    .replace(/\$/g, '')
+    .replace(/\{/g, '')
+    .replace(/\}/g, '')
     .replace(/javascript:/gi, '')
-    .replace(/data:/gi, '') 
-    .replace(/on\w+=/gi, '') 
-    .replace(/expression\(/gi, '') 
+    .replace(/data:/gi, '')
+    .replace(/on\w+=/gi, '')
+    .replace(/expression\(/gi, '')
     .trim()
-  
+
   // Then check word count (2000 WORDS)
   const words = sanitized.split(/\s+/).filter(word => word.length > 0)
   if (words.length > MAX_DESCRIPTION_WORDS) {
     sanitized = words.slice(0, MAX_DESCRIPTION_WORDS).join(' ')
   }
-  
+
   return sanitized
 }
 
 // Category and Subcategories sanitization (preserves business formatting)
 function sanitizeCategoryInput(input) {
   if (typeof input !== 'string') return input
-  
+
   return input
     .replace(/[<>"'%;]/g, '') // Remove XSS chars but preserve & / - ( )
     .replace(/\$/g, '') // Remove $ for injection prevention
@@ -134,7 +134,7 @@ function sanitizeCategoryInput(input) {
 // 🔧 NEW: SEARCH INPUT sanitization (extra strict for search queries)
 function sanitizeSearchInput(input) {
   if (typeof input !== 'string') return input
-  
+
   return input
     .replace(/[<>"'%;()&+${}]/g, '') // Remove all dangerous chars
     .replace(/[\/\\]/g, '') // Remove slashes for search safety
@@ -151,9 +151,9 @@ function sanitizeSearchInput(input) {
 // 🔧 NEW: Function to sanitize and validate array fields with product-specific sanitization
 function sanitizeAndValidateArray(input, fieldName, maxItems = 10, maxLength = 50, useProductSanitizer = false) {
   if (!input) return []
-  
+
   const sanitizer = useProductSanitizer ? sanitizeProductInput : sanitizeInput
-  
+
   // If it's already an array, process it
   if (Array.isArray(input)) {
     return input
@@ -161,13 +161,13 @@ function sanitizeAndValidateArray(input, fieldName, maxItems = 10, maxLength = 5
       .filter(item => item && item.length > 0 && item.length <= maxLength)
       .slice(0, maxItems) // Limit number of items
   }
-  
+
   // If it's a single value, convert to array
   if (typeof input === 'string' && input.trim()) {
     const sanitized = sanitizer(input)
     return sanitized && sanitized.length <= maxLength ? [sanitized] : []
   }
-  
+
   console.warn(`${fieldName} received invalid format:`, typeof input)
   return []
 }
@@ -175,26 +175,26 @@ function sanitizeAndValidateArray(input, fieldName, maxItems = 10, maxLength = 5
 // Sanitize filename with better handling
 function sanitizeFilename(filename) {
   if (!filename || typeof filename !== 'string') return 'unnamed_file'
-  
+
   let sanitized = filename
     .replace(/[<>"'%;()&+${}]/g, '') // Remove dangerous chars
     .replace(/[\/\\:*?"<>|]/g, '_') // Replace path separators with underscores
     .replace(/\s+/g, '_') // Replace spaces with underscores
     .replace(/_{2,}/g, '_') // Replace multiple underscores with single
     .trim()
-  
+
   if (sanitized.length > MAX_FILENAME_LENGTH) {
     const extension = sanitized.split('.').pop()
     const nameWithoutExt = sanitized.substring(0, sanitized.lastIndexOf('.'))
     const maxNameLength = MAX_FILENAME_LENGTH - extension.length - 1
-    
+
     if (maxNameLength > 0) {
       sanitized = nameWithoutExt.substring(0, maxNameLength) + '.' + extension
     } else {
       sanitized = sanitized.substring(0, MAX_FILENAME_LENGTH)
     }
   }
-  
+
   return sanitized
 }
 
@@ -207,24 +207,24 @@ function isValidObjectId(id) {
 function checkUploadAbuse(ip) {
   const now = Date.now()
   const userUploads = uploadTracker.get(ip) || []
-  
+
   // Remove uploads older than 1 hour
   const recentUploads = userUploads.filter(time => now - time < 3600000)
-  
+
   // Allow max 50 uploads per hour per IP
   if (recentUploads.length >= 50) {
     throw new Error('Upload limit exceeded. Try again later.')
   }
-  
+
   recentUploads.push(now)
   uploadTracker.set(ip, recentUploads)
 }
 
 // 🔐 SECURITY: Get user IP
 function getUserIP(req) {
-  return req.headers.get('x-forwarded-for')?.split(',') || 
-         req.headers.get('x-real-ip') || 
-         'unknown'
+  return req.headers.get('x-forwarded-for')?.split(',') ||
+    req.headers.get('x-real-ip') ||
+    'unknown'
 }
 
 // Validate environment variables
@@ -305,20 +305,20 @@ async function getUserInfo(req) {
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       return { role: 'public', branch: null, userId: null, isStockEditor: false, isAuthenticated: false }
     }
-    
+
     // Check for temp token (development mode)
     if (authHeader === 'Bearer temp-admin-token-for-development') {
       console.log('🔧 Using temporary admin token for development')
       return { role: 'admin', branch: null, userId: 'temp-admin', isStockEditor: true, isAuthenticated: true }
     }
-    
+
     const user = await verifyApiToken(req)
-    return { 
-      role: user.role || 'user', 
-      branch: user.branch || null, 
+    return {
+      role: user.role || 'user',
+      branch: user.branch || null,
       userId: user.userId || user.id,
       isStockEditor: user.isStockEditor || false, // 🔧 NEW: Include isStockEditor
-      isAuthenticated: true 
+      isAuthenticated: true
     }
   } catch (authError) {
     console.log('🔧 Authentication failed, treating as public user:', authError.message)
@@ -335,7 +335,7 @@ export async function GET(req) {
   try {
     console.log('GET: Starting request processing...')
     const { searchParams } = new URL(req.url)
-    
+
     // 🔧 UPDATED: Use appropriate sanitizers for different input types
     const id = sanitizeInput(searchParams.get('id'))
     const barcode = sanitizeInput(searchParams.get('barcode'))
@@ -344,7 +344,7 @@ export async function GET(req) {
     const search = sanitizeSearchInput(searchParams.get('search'))
     const status = sanitizeInput(searchParams.get('status')) || 'active'
     const branch = sanitizeInput(searchParams.get('branch'))
-    const limit = Math.min(parseInt(searchParams.get('limit')) || 50, 100)
+    const limit = Math.min(parseInt(searchParams.get('limit')) || 50, 10000)
     const page = Math.max(parseInt(searchParams.get('page')) || 1, 1)
     const inStock = searchParams.get('inStock')
     const getCategoriesOnly = searchParams.get('getCategoriesOnly') === 'true' || searchParams.get('getCategories') === 'true'
@@ -385,15 +385,15 @@ export async function GET(req) {
     // Get categories structure for frontend
     if (getCategoriesOnly) {
       console.log('GET: Fetching categories...')
-      
+
       try {
         const customCategories = await db
           .collection('categories')
           .find({}, { projection: { name: 1, subcategories: 1 } })
           .toArray()
-        
+
         console.log('GET: Raw custom categories from DB:', customCategories)
-        
+
         // Start with default categories
         const allCategories = { ...VAPE_CATEGORIES }
 
@@ -407,11 +407,11 @@ export async function GET(req) {
 
         console.log('GET: Final merged categories:', allCategories)
         console.log('GET: Categories fetched successfully ✓')
-        
+
         return NextResponse.json(
           { categories: allCategories },
           {
-            headers: { 
+            headers: {
               'Content-Type': 'application/json',
               'Cache-Control': 'public, max-age=300' // 5 minutes cache for categories
             },
@@ -419,12 +419,12 @@ export async function GET(req) {
         )
       } catch (categoryError) {
         console.error('GET: Error fetching categories:', categoryError)
-        
+
         // Fallback to default categories
         return NextResponse.json(
           { categories: VAPE_CATEGORIES },
           {
-            headers: { 
+            headers: {
               'Content-Type': 'application/json',
               'Cache-Control': 'public, max-age=60'
             },
@@ -445,7 +445,7 @@ export async function GET(req) {
           branches: DEFAULT_BRANCHES,
         },
         {
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Cache-Control': 'public, max-age=1800'
           },
@@ -468,7 +468,7 @@ export async function GET(req) {
       // Try exact match first
       let product = await db
         .collection('products')
-        .findOne({ 
+        .findOne({
           barcode: barcode.trim(),
           status: userInfo.role === 'public' ? 'active' : status
         })
@@ -517,7 +517,7 @@ export async function GET(req) {
           },
         },
         {
-          headers: { 
+          headers: {
             'Content-Type': 'application/json',
             'Cache-Control': userInfo.role === 'public' ? 'public, max-age=300' : 'private, max-age=60'
           },
@@ -528,7 +528,7 @@ export async function GET(req) {
     // Get single product by ID with role-based projection
     if (id) {
       console.log('GET: Searching by ID:', id)
-      
+
       // Validate ObjectId format
       if (!isValidObjectId(id)) {
         console.log('GET: Invalid product ID:', id)
@@ -541,7 +541,7 @@ export async function GET(req) {
       const { ObjectId } = require('mongodb')
       const product = await db
         .collection('products')
-        .findOne({ 
+        .findOne({
           _id: new ObjectId(id),
           status: userInfo.role === 'public' ? 'active' : status
         })
@@ -559,7 +559,7 @@ export async function GET(req) {
 
       console.log('GET: Product found with ID ✓')
       return NextResponse.json(filteredProduct, {
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Cache-Control': userInfo.role === 'public' ? 'public, max-age=300' : 'private, max-age=60'
         },
@@ -592,7 +592,7 @@ export async function GET(req) {
     if (search) {
       // Extra sanitization for search to prevent injection
       const safeSearch = search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      
+
       query.$or = [
         { name: { $regex: safeSearch, $options: 'i' } },
         { description: { $regex: safeSearch, $options: 'i' } },
@@ -620,69 +620,69 @@ export async function GET(req) {
 
 
 
-// Handle stock and branch restrictions
-if (userInfo.role === 'moderator') {
-  // 🔒 RESTRICTION: Moderator can only see their own branch data - NO FILTERING ALLOWED
-  if (branch && branch !== userInfo.branch) {
-    return NextResponse.json(
-      { error: 'Access denied: Cannot view other branch data' },
-      { status: 403 }
-    )
-  }
-  
-  // 🔒 MODERATOR ALWAYS sees products from their assigned branch only
-  console.log('🏢 Moderator restricted to their branch:', userInfo.branch);
-  if (inStock === 'true') {
-    query[`stock.${userInfo.branch}_stock`] = { $gt: 0 }
-  }
-  
-} else if (userInfo.role === 'pos') {
-  // 🔧 NEW: POS role - same restrictions as moderator
-  // 🔒 RESTRICTION: POS can only see their own branch data - NO FILTERING ALLOWED
-  if (branch && branch !== userInfo.branch) {
-    return NextResponse.json(
-      { error: 'Access denied: Cannot view other branch data' },
-      { status: 403 }
-    )
-  }
-  
-  // 🔒 POS ALWAYS sees products from their assigned branch only
-  console.log('🏢 POS user restricted to their branch:', userInfo.branch);
-  if (inStock === 'true') {
-    query[`stock.${userInfo.branch}_stock`] = { $gt: 0 }
-  }
-  
-} else if (userInfo.role === 'public') {
-  // Filter by branch stock availability for public
-  if (branch) {
-    if (!/^[a-zA-Z0-9_]{1,20}$/.test(branch)) {
-      return NextResponse.json(
-        { error: 'Invalid branch name' },
-        { status: 400 }
-      )
+    // Handle stock and branch restrictions
+    if (userInfo.role === 'moderator') {
+      // 🔒 RESTRICTION: Moderator can only see their own branch data - NO FILTERING ALLOWED
+      if (branch && branch !== userInfo.branch) {
+        return NextResponse.json(
+          { error: 'Access denied: Cannot view other branch data' },
+          { status: 403 }
+        )
+      }
+
+      // 🔒 MODERATOR ALWAYS sees products from their assigned branch only
+      console.log('🏢 Moderator restricted to their branch:', userInfo.branch);
+      if (inStock === 'true') {
+        query[`stock.${userInfo.branch}_stock`] = { $gt: 0 }
+      }
+
+    } else if (userInfo.role === 'pos') {
+      // 🔧 NEW: POS role - same restrictions as moderator
+      // 🔒 RESTRICTION: POS can only see their own branch data - NO FILTERING ALLOWED
+      if (branch && branch !== userInfo.branch) {
+        return NextResponse.json(
+          { error: 'Access denied: Cannot view other branch data' },
+          { status: 403 }
+        )
+      }
+
+      // 🔒 POS ALWAYS sees products from their assigned branch only
+      console.log('🏢 POS user restricted to their branch:', userInfo.branch);
+      if (inStock === 'true') {
+        query[`stock.${userInfo.branch}_stock`] = { $gt: 0 }
+      }
+
+    } else if (userInfo.role === 'public') {
+      // Filter by branch stock availability for public
+      if (branch) {
+        if (!/^[a-zA-Z0-9_]{1,20}$/.test(branch)) {
+          return NextResponse.json(
+            { error: 'Invalid branch name' },
+            { status: 400 }
+          )
+        }
+        console.log('🏢 Public filtering by branch:', branch);
+        query[`stock.${branch}_stock`] = { $gt: 0 };
+      } else if (inStock === 'true') {
+        // Check stock in default branches
+        query.$or = [
+          { 'stock.bashundhura_stock': { $gt: 0 } },
+          { 'stock.mirpur_stock': { $gt: 0 } },
+        ]
+      }
+
+    } else if (userInfo.role === 'admin') {
+      // 🔥 FIXED: Admin can filter by any branch - ALWAYS apply branch filter
+      if (branch) {
+        console.log('🏢 Admin filtering by branch:', branch);
+        query[`stock.${branch}_stock`] = { $gt: 0 };
+      } else if (inStock === 'true') {
+        query.$or = [
+          { 'stock.bashundhura_stock': { $gt: 0 } },
+          { 'stock.mirpur_stock': { $gt: 0 } },
+        ]
+      }
     }
-    console.log('🏢 Public filtering by branch:', branch);
-    query[`stock.${branch}_stock`] = { $gt: 0 };
-  } else if (inStock === 'true') {
-    // Check stock in default branches
-    query.$or = [
-      { 'stock.bashundhura_stock': { $gt: 0 } },
-      { 'stock.mirpur_stock': { $gt: 0 } },
-    ]
-  }
-  
-} else if (userInfo.role === 'admin') {
-  // 🔥 FIXED: Admin can filter by any branch - ALWAYS apply branch filter
-  if (branch) {
-    console.log('🏢 Admin filtering by branch:', branch);
-    query[`stock.${branch}_stock`] = { $gt: 0 };
-  } else if (inStock === 'true') {
-    query.$or = [
-      { 'stock.bashundhura_stock': { $gt: 0 } },
-      { 'stock.mirpur_stock': { $gt: 0 } },
-    ]
-  }
-}
 
 
 
@@ -743,7 +743,7 @@ if (userInfo.role === 'moderator') {
         },
       },
       {
-        headers: { 
+        headers: {
           'Content-Type': 'application/json',
           'Cache-Control': userInfo.role === 'public' ? 'public, max-age=60' : `private, max-age=60`
         },
@@ -766,10 +766,10 @@ function filterProductByRole(product, userInfo) {
 
   if (userInfo.role === 'public') {
     // 🔥 NEW APPROACH: Preserve branch structure but hide exact numbers
-    
+
     if (product.stock) {
       const filteredStock = {}
-      
+
       // Check all stock keys
       for (const [key, value] of Object.entries(product.stock)) {
         if (key.endsWith('_stock')) {
@@ -780,23 +780,23 @@ function filterProductByRole(product, userInfo) {
           filteredStock[key] = value
         }
       }
-      
+
       // Also add general availability for backwards compatibility
-      const hasAnyStock = Object.entries(product.stock).some(([key, value]) => 
+      const hasAnyStock = Object.entries(product.stock).some(([key, value]) =>
         key.endsWith('_stock') && value > 0
       )
-      
+
       filteredStock.available = hasAnyStock
       filteredStock.status = hasAnyStock ? 'in_stock' : 'out_of_stock'
-      
+
       filteredProduct.stock = filteredStock
     }
-    
+
     // Remove sensitive information
     delete filteredProduct.barcode
-    
+
     console.log('🔧 Public user - filtered stock with branch structure:', filteredProduct.stock)
-    
+
   } else if (userInfo.role === 'moderator' && userInfo.branch) {
     // 🔒 Moderator only sees their branch stock
     const branchStock = {}
@@ -804,9 +804,9 @@ function filterProductByRole(product, userInfo) {
       branchStock[`${userInfo.branch}_stock`] = product.stock[`${userInfo.branch}_stock`] || 0
     }
     filteredProduct.stock = branchStock
-    
+
     console.log('🔧 Moderator - filtered to branch:', userInfo.branch, 'Stock:', branchStock)
-    
+
   } else if (userInfo.role === 'pos' && userInfo.branch) {
     // 🔧 NEW: POS only sees their branch stock (same restriction as moderator)
     const branchStock = {}
@@ -814,10 +814,10 @@ function filterProductByRole(product, userInfo) {
       branchStock[`${userInfo.branch}_stock`] = product.stock[`${userInfo.branch}_stock`] || 0
     }
     filteredProduct.stock = branchStock
-    
+
     console.log('🔧 POS user - filtered to branch:', userInfo.branch, 'Stock:', branchStock)
   }
-  
+
   // 🔥 Admin sees everything (no filtering applied)
   if (userInfo.role === 'admin') {
     console.log('🔧 Admin - no filtering applied, full access')
@@ -877,7 +877,7 @@ export async function POST(req) {
 
       console.log('POST: Adding category:', body.categoryName)
       const categoryName = sanitizeCategoryInput(body.categoryName)
-      const subcategories = Array.isArray(body.subcategories) 
+      const subcategories = Array.isArray(body.subcategories)
         ? body.subcategories.map(sub => sanitizeCategoryInput(sub)).filter(sub => sub.length > 0)
         : []
 
@@ -1265,7 +1265,7 @@ export async function POST(req) {
               { status: 403 }
             )
           }
-          
+
           // Stock Editors can only modify their own branch stock
           const allowedStockKey = `${userInfo.branch}_stock`
           for (const branchKey of Object.keys(stock)) {
@@ -1277,7 +1277,7 @@ export async function POST(req) {
             }
           }
         }
-        
+
         for (const [branchKey, stockValue] of Object.entries(stock)) {
           if (!branchKey.endsWith('_stock') || !/^[a-zA-Z0-9_]{1,20}_stock$/.test(branchKey)) {
             return NextResponse.json(
@@ -1285,7 +1285,7 @@ export async function POST(req) {
               { status: 400 }
             )
           }
-          
+
           const stockNum = parseInt(stockValue)
           if (isNaN(stockNum) || stockNum < 0 || stockNum > 99999) {
             return NextResponse.json(
@@ -1303,7 +1303,7 @@ export async function POST(req) {
       const existingProduct = await db
         .collection('products')
         .findOne({ _id: new ObjectId(productId) })
-      
+
       if (!existingProduct) {
         console.log('POST: Product not found for update:', productId)
         return NextResponse.json(
@@ -1329,7 +1329,7 @@ export async function POST(req) {
       // 🔧 NEW: Merge branch specifications properly
       const existingBranchSpecs = existingProduct.branchSpecifications || {}
       const mergedBranchSpecifications = { ...existingBranchSpecs }
-      
+
       // Only update the branches provided in the request
       if (branchSpecifications && typeof branchSpecifications === 'object') {
         Object.keys(branchSpecifications).forEach(branch => {
@@ -1340,7 +1340,7 @@ export async function POST(req) {
       // 🔧 NEW: Merge stock properly  
       const existingStock = existingProduct.stock || {}
       const mergedStock = { ...existingStock }
-      
+
       // Only update the stock values provided in the request
       if (stock && typeof stock === 'object') {
         Object.keys(stock).forEach(stockKey => {
@@ -1365,8 +1365,8 @@ export async function POST(req) {
         subcategory: sanitizedSubcategory?.trim() || '',
         status: sanitizedStatus || 'active',
         specifications: specifications || {},
-        tags: Array.isArray(tags) 
-          ? tags.map(tag => sanitizeProductInput(tag)).filter(tag => tag.length > 0 && tag.length <= 50).slice(0, 20) 
+        tags: Array.isArray(tags)
+          ? tags.map(tag => sanitizeProductInput(tag)).filter(tag => tag.length > 0 && tag.length <= 50).slice(0, 20)
           : [],
         // 🔧 FIXED: Use merged data instead of overwriting
         branchSpecifications: mergedBranchSpecifications,
@@ -1549,36 +1549,36 @@ export async function POST(req) {
       }
     }
 
-      // Initialize stock object with branches
-      let initialStock = {}
-      if (stock && typeof stock === 'object' && Object.keys(stock).length > 0) { // 🔧 FIXED: Check if stock object has keys
-        // 🔧 NEW: Stock Editor restriction for moderators - ONLY if they're trying to add stock
-        if (userInfo.role === 'moderator') {
-          // Check if they're actually trying to set stock values (not all zeros)
-          const hasNonZeroStock = Object.values(stock).some(val => parseInt(val) > 0)
-          
-          if (hasNonZeroStock) {
-            // Check if moderator is a Stock Editor
-            if (!userInfo.isStockEditor) {
+    // Initialize stock object with branches
+    let initialStock = {}
+    if (stock && typeof stock === 'object' && Object.keys(stock).length > 0) { // 🔧 FIXED: Check if stock object has keys
+      // 🔧 NEW: Stock Editor restriction for moderators - ONLY if they're trying to add stock
+      if (userInfo.role === 'moderator') {
+        // Check if they're actually trying to set stock values (not all zeros)
+        const hasNonZeroStock = Object.values(stock).some(val => parseInt(val) > 0)
+
+        if (hasNonZeroStock) {
+          // Check if moderator is a Stock Editor
+          if (!userInfo.isStockEditor) {
+            return NextResponse.json(
+              { error: 'Only Stock Editors can add or modify stock. Contact admin to get Stock Editor permission.' },
+              { status: 403 }
+            )
+          }
+
+          // Stock Editors can only modify their own branch stock
+          const allowedStockKey = `${userInfo.branch}_stock`
+          for (const branchKey of Object.keys(stock)) {
+            if (branchKey !== allowedStockKey) {
               return NextResponse.json(
-                { error: 'Only Stock Editors can add or modify stock. Contact admin to get Stock Editor permission.' },
+                { error: `You can only add stock for your branch (${userInfo.branch}). Cannot modify ${branchKey}.` },
                 { status: 403 }
               )
             }
-            
-            // Stock Editors can only modify their own branch stock
-            const allowedStockKey = `${userInfo.branch}_stock`
-            for (const branchKey of Object.keys(stock)) {
-              if (branchKey !== allowedStockKey) {
-                return NextResponse.json(
-                  { error: `You can only add stock for your branch (${userInfo.branch}). Cannot modify ${branchKey}.` },
-                  { status: 403 }
-                )
-              }
-            }
           }
         }
-      
+      }
+
       // Validate stock keys
       for (const [branchKey, stockValue] of Object.entries(stock)) {
         if (!branchKey.endsWith('_stock') || !/^[a-zA-Z0-9_]{1,20}_stock$/.test(branchKey)) {
@@ -1587,7 +1587,7 @@ export async function POST(req) {
             { status: 400 }
           )
         }
-        
+
         const stockNum = parseInt(stockValue)
         if (isNaN(stockNum) || stockNum < 0 || stockNum > 99999) {
           return NextResponse.json(
@@ -1598,7 +1598,7 @@ export async function POST(req) {
         initialStock[branchKey] = stockNum
       }
     }
- else {
+    else {
       // Initialize with default branches
       const branchList = Array.isArray(branches) ? branches : DEFAULT_BRANCHES
       branchList.forEach((branch) => {
@@ -1638,7 +1638,7 @@ export async function POST(req) {
       stock: initialStock,
       status: sanitizedStatus || 'active',
       specifications: specifications || {},
-      tags: Array.isArray(tags) 
+      tags: Array.isArray(tags)
         ? tags.map(tag => sanitizeProductInput(tag)).filter(tag => tag.length > 0 && tag.length <= 50).slice(0, 20)
         : [],
       // 🔧 IMPROVED: Store branch specifications properly
@@ -1756,12 +1756,12 @@ export async function PUT(req) {
     const uploadErrors = []
 
     // Determine max file size based on user role
-    const maxFileSize = ['admin', 'moderator'].includes(userInfo.role) 
-      ? MAX_IMAGE_SIZE_ADMIN 
+    const maxFileSize = ['admin', 'moderator'].includes(userInfo.role)
+      ? MAX_IMAGE_SIZE_ADMIN
       : MAX_IMAGE_SIZE_USER
 
     console.log('PUT: Starting image uploads to Cloudinary...')
-    
+
     for (let i = 0; i < files.length; i++) {
       const file = files[i]
 
@@ -1803,28 +1803,28 @@ export async function PUT(req) {
         console.log(`PUT: Converting file ${i + 1} to buffer...`)
         const bytes = await file.arrayBuffer()
         const buffer = Buffer.from(bytes)
-        
+
         console.log(`PUT: Buffer created successfully, size: ${buffer.length} bytes`)
 
         console.log(`PUT: Uploading file ${i + 1} to Cloudinary...`)
-        
+
         // Ultra-simple Cloudinary configuration without any transformations
         const uploadResponse = await new Promise((resolve, reject) => {
           const uploadStream = cloudinary.uploader.upload_stream(
             {
-             resource_type: 'image',
-            folder: 'vwv_vape_products',
-            public_id: `vape_product_${productId}_${Date.now()}_${i}`,
-            // Allow only safe image formats
-            allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'],
-            // Safe transformations
-            transformation: [
-              { width: 800, height: 800, crop: 'limit' },
-              { quality: 'auto:good' },
-              { fetch_format: 'auto' }
-            ],
-            access_mode: 'public',
-            timeout: 60000,
+              resource_type: 'image',
+              folder: 'vwv_vape_products',
+              public_id: `vape_product_${productId}_${Date.now()}_${i}`,
+              // Allow only safe image formats
+              allowed_formats: ['jpg', 'jpeg', 'png', 'webp', 'gif', 'avif'],
+              // Safe transformations
+              transformation: [
+                { width: 800, height: 800, crop: 'limit' },
+                { quality: 'auto:good' },
+                { fetch_format: 'auto' }
+              ],
+              access_mode: 'public',
+              timeout: 60000,
             },
             (error, result) => {
               if (error) {
@@ -1843,7 +1843,7 @@ export async function PUT(req) {
               }
             }
           )
-          
+
           // Ensure the upload stream is properly ended
           try {
             uploadStream.end(buffer)
@@ -1869,7 +1869,7 @@ export async function PUT(req) {
           url: newImage.url,
           publicId: newImage.publicId
         })
-        
+
       } catch (uploadError) {
         const error = `File ${i + 1}: ${uploadError.message}`
         console.error(`PUT: Upload error for file ${i + 1}:`, uploadError)
@@ -1883,8 +1883,8 @@ export async function PUT(req) {
     if (uploadedImages.length === 0) {
       console.log('PUT: No images uploaded successfully')
       return NextResponse.json(
-        { 
-          error: 'No images were uploaded successfully', 
+        {
+          error: 'No images were uploaded successfully',
           errors: uploadErrors,
           details: 'All image uploads failed. Please check file formats and sizes.'
         },
@@ -1898,7 +1898,7 @@ export async function PUT(req) {
       { _id: new ObjectId(productId) },
       {
         $push: { images: { $each: uploadedImages } },
-        $set: { 
+        $set: {
           updatedAt: new Date(),
           updatedBy: userInfo.userId,
         },
@@ -1923,7 +1923,7 @@ export async function PUT(req) {
     }
 
     console.log('PUT: Images uploaded and saved successfully ✓')
-    
+
     const response = {
       message: 'Images uploaded successfully',
       uploadedImages,
@@ -1933,18 +1933,18 @@ export async function PUT(req) {
         total: files.length
       }
     }
-    
+
     // Include errors if any, but still return success if some uploads worked
     if (uploadErrors.length > 0) {
       response.uploadErrors = uploadErrors
       response.message = `${uploadedImages.length} of ${files.length} images uploaded successfully`
     }
 
-    return NextResponse.json(response, { 
-      status: 200, 
-      headers: { 'Content-Type': 'application/json' } 
+    return NextResponse.json(response, {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
     })
-    
+
   } catch (err) {
     return handleApiError(err, 'PUT /api/products')
   }
@@ -2047,7 +2047,7 @@ export async function DELETE(req) {
         { _id: new ObjectId(productId) },
         {
           $pull: { images: { publicId: imagePublicId } },
-          $set: { 
+          $set: {
             updatedAt: new Date(),
             updatedBy: userInfo.userId,
           },
