@@ -3,8 +3,8 @@
 import { useState, useEffect } from 'react'
 import DashboardLayout from '../../../components/DashboardLayout'
 import { useBranch } from '@/contexts/BranchContext'
-import { 
-  ShoppingCart, 
+import {
+  ShoppingCart,
   Eye,
   Calendar,
   Phone,
@@ -21,7 +21,8 @@ import {
   Building,
   X,
   ChevronDown,
-  Check
+  Check,
+  Trash2
 } from 'lucide-react'
 import Swal from 'sweetalert2'
 
@@ -97,13 +98,13 @@ export default function SalesPage() {
     try {
       setIsLoading(true)
       const token = localStorage.getItem('auth-token')
-      
+
       const params = new URLSearchParams({
         page: currentPage,
         limit: 20,
         branch: branch
       })
-      
+
       if (phoneQuery.trim()) params.append('phone', phoneQuery.trim())
 
       console.log('🔍 Fetching sales for branch:', branch)
@@ -141,7 +142,7 @@ export default function SalesPage() {
     changeBranch(branch)
     setIsBranchDropdownOpen(false)
     setCurrentPage(1)
-    
+
     Swal.fire({
       toast: true,
       position: 'top-end',
@@ -191,6 +192,78 @@ export default function SalesPage() {
   const viewSaleDetails = (sale) => {
     setSelectedSale(sale)
     setShowDetailsModal(true)
+  }
+
+  // Delete sale (Admin only)
+  const deleteSale = async (sale) => {
+    // Confirm deletion with SweetAlert2
+    const result = await Swal.fire({
+      title: 'Delete Sale?',
+      html: `
+        <div class="text-left">
+          <p class="text-gray-700 mb-2">Are you sure you want to delete this sale?</p>
+          <div class="bg-red-50 p-3 rounded-lg border border-red-200">
+            <p class="text-sm text-gray-600"><strong>Sale ID:</strong> ${sale.saleId}</p>
+            <p class="text-sm text-gray-600"><strong>Customer:</strong> ${sale.customer?.name || 'Walk-in'}</p>
+            <p class="text-sm text-gray-600"><strong>Amount:</strong> ৳${parseFloat(sale.adjustedAmount || sale.totalAmount).toFixed(2)}</p>
+            <p class="text-sm text-red-600 mt-2"><strong>⚠️ This action cannot be undone!</strong></p>
+          </div>
+        </div>
+      `,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: '#dc2626',
+      cancelButtonColor: '#6b7280',
+      confirmButtonText: 'Yes, delete it!',
+      cancelButtonText: 'Cancel',
+      reverseButtons: true,
+    })
+
+    if (!result.isConfirmed) return
+
+    try {
+      const token = localStorage.getItem('auth-token')
+      const response = await fetch(`/api/sales?saleId=${sale.saleId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      })
+
+      const data = await response.json()
+
+      if (response.ok) {
+        // Immediately update local state to remove the deleted sale
+        setSales(prevSales => prevSales.filter(s => s.saleId !== sale.saleId))
+
+        // Show success message
+        Swal.fire({
+          icon: 'success',
+          title: 'Deleted!',
+          text: 'Sale has been deleted successfully.',
+          confirmButtonColor: '#7c3aed',
+          timer: 2000,
+          timerProgressBar: true,
+        })
+
+        // Refresh the sales list from server to ensure consistency
+        const currentBranch = selectedBranch || userInfo?.branch
+        if (currentBranch) {
+          fetchSales(currentBranch)
+        }
+      } else {
+        throw new Error(data.error || 'Failed to delete sale')
+      }
+    } catch (error) {
+      console.error('Error deleting sale:', error)
+      Swal.fire({
+        icon: 'error',
+        title: 'Delete Failed',
+        text: error.message || 'Failed to delete sale. Please try again.',
+        confirmButtonColor: '#7c3aed',
+      })
+    }
   }
 
   const formatCurrency = (amount) => {
@@ -250,7 +323,7 @@ export default function SalesPage() {
             </h1>
             <div className="flex items-center gap-4 mt-2">
               <p className="text-gray-500">Track and manage POS sales</p>
-              
+
               {/* Admin Branch Selector */}
               {userInfo?.role === 'admin' && (
                 <div className="relative">
@@ -265,8 +338,8 @@ export default function SalesPage() {
 
                   {isBranchDropdownOpen && (
                     <>
-                      <div 
-                        className="fixed inset-0 z-40" 
+                      <div
+                        className="fixed inset-0 z-40"
                         onClick={() => setIsBranchDropdownOpen(false)}
                       />
                       <div className="absolute top-full left-0 mt-2 bg-white rounded-lg shadow-xl border border-purple-200 z-50 min-w-[200px]">
@@ -275,9 +348,8 @@ export default function SalesPage() {
                             <button
                               key={branch}
                               onClick={() => handleBranchChange(branch)}
-                              className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${
-                                selectedBranch === branch ? 'bg-purple-100' : ''
-                              }`}
+                              className={`w-full text-left px-4 py-2 hover:bg-purple-50 transition-colors flex items-center justify-between ${selectedBranch === branch ? 'bg-purple-100' : ''
+                                }`}
                             >
                               <span className="text-sm font-medium text-gray-700 capitalize">
                                 {branch}
@@ -302,7 +374,7 @@ export default function SalesPage() {
                 </span>
               )}
             </div>
-            
+
             {/* Sales Stats */}
             <div className="flex items-center gap-4 mt-4">
               <div className="flex items-center gap-2">
@@ -327,7 +399,7 @@ export default function SalesPage() {
                 <Phone className="w-5 h-5 text-purple-600" />
                 <h3 className="text-sm font-bold text-gray-800">Search by Phone</h3>
               </div>
-              
+
               <div className="relative">
                 <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
@@ -473,13 +545,24 @@ export default function SalesPage() {
                           </div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <button
-                            onClick={() => viewSaleDetails(sale)}
-                            className="text-purple-600 hover:text-purple-800 transition-colors"
-                            title="View details"
-                          >
-                            <Eye className="w-5 h-5" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => viewSaleDetails(sale)}
+                              className="text-purple-600 hover:text-purple-800 transition-colors"
+                              title="View details"
+                            >
+                              <Eye className="w-5 h-5" />
+                            </button>
+                            {userInfo?.role === 'admin' && (
+                              <button
+                                onClick={() => deleteSale(sale)}
+                                className="text-red-600 hover:text-red-800 transition-colors"
+                                title="Delete sale"
+                              >
+                                <Trash2 className="w-5 h-5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
